@@ -12,6 +12,12 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
+# GitHub repository info
+GITHUB_USER="miladrajabi2002"
+GITHUB_REPO="server"
+GITHUB_BRANCH="main"
+SCRIPT_URL="https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/${GITHUB_BRANCH}/server"
+
 echo -e "${CYAN}"
 cat << "EOF"
 ╔═══════════════════════════════════════════════════════════╗
@@ -30,19 +36,48 @@ fi
 
 echo -e "${CYAN}Installing Server Management Tool...${NC}\n"
 
+# Check if curl is installed
+if ! command -v curl &> /dev/null; then
+    echo -e "${YELLOW}Installing curl...${NC}"
+    if command -v apt-get &> /dev/null; then
+        apt-get update -qq && apt-get install -y -qq curl
+    elif command -v yum &> /dev/null; then
+        yum install -y -q curl
+    else
+        echo -e "${RED}Cannot install curl. Please install it manually.${NC}"
+        exit 1
+    fi
+fi
+
 # Detect installation method
 if [ -f "server" ]; then
     # Local installation
     echo -e "${GREEN}✓${NC} Found local server file"
     cp server /usr/local/bin/server
 elif [ -n "$1" ]; then
-    # Install from URL
-    echo -e "${YELLOW}Downloading from: $1${NC}"
-    curl -fsSL "$1" -o /usr/local/bin/server
+    # Install from custom URL
+    echo -e "${YELLOW}Downloading from custom URL: $1${NC}"
+    if curl -fsSL "$1" -o /usr/local/bin/server; then
+        echo -e "${GREEN}✓${NC} Downloaded successfully"
+    else
+        echo -e "${RED}Failed to download from: $1${NC}"
+        exit 1
+    fi
 else
-    echo -e "${RED}Error: No server file found and no URL provided${NC}"
-    echo -e "${YELLOW}Usage: $0 [URL to server file]${NC}"
-    exit 1
+    # Install from GitHub (default)
+    echo -e "${YELLOW}Downloading from GitHub...${NC}"
+    echo -e "${GRAY}URL: ${SCRIPT_URL}${NC}"
+    
+    if curl -fsSL "$SCRIPT_URL" -o /usr/local/bin/server; then
+        echo -e "${GREEN}✓${NC} Downloaded successfully from GitHub"
+    else
+        echo -e "${RED}Failed to download from GitHub${NC}"
+        echo -e "${YELLOW}Please check:${NC}"
+        echo -e "  1. Internet connection"
+        echo -e "  2. GitHub repository exists: https://github.com/${GITHUB_USER}/${GITHUB_REPO}"
+        echo -e "  3. File 'server' exists in the repository"
+        exit 1
+    fi
 fi
 
 # Make executable
