@@ -21,4 +21,4 @@ Future updates will include:
 To install and run directly:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/server-toolkit/main/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/miladrajabi2002/server/main/install.sh)
