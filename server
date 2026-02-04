@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-
 #==============================================================================
 # Server Management & Optimization Tool
-# Version: 2.0.0
-# Focus: Network Optimization, Performance, and Server Management
+# Version: 2.1.0
+# Focus: Network Optimization, Performance, Server Management & Logs
 #==============================================================================
 
 # Color codes
@@ -19,7 +18,7 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 # Configuration
-SCRIPT_VERSION="2.0.0"
+SCRIPT_VERSION="2.1.0"
 SYSCTL_CONF="/etc/sysctl.conf"
 BACKUP_DIR="/root/server-tool-backups"
 
@@ -37,7 +36,7 @@ print_banner() {
 ╔═══════════════════════════════════════════════════════════════╗
 ║                                                               ║
 ║         SERVER MANAGEMENT & OPTIMIZATION TOOL                 ║
-║                     Version 2.0.0                             ║
+║                      Version 2.1.0                            ║
 ║                                                               ║
 ╚═══════════════════════════════════════════════════════════════╝
 EOF
@@ -53,12 +52,36 @@ print_header() {
 print_status() {
     local status="$1"
     local message="$2"
+    
     case $status in
-        "OK") echo -e "${GREEN}✓${NC} $message" ;;
-        "WARN") echo -e "${YELLOW}⚠${NC} $message" ;;
-        "FAIL") echo -e "${RED}✗${NC} $message" ;;
-        "INFO") echo -e "${CYAN}ℹ${NC} $message" ;;
+        "OK")
+            echo -e "${GREEN}✓${NC} $message"
+            ;;
+        "WARN")
+            echo -e "${YELLOW}⚠${NC} $message"
+            ;;
+        "FAIL")
+            echo -e "${RED}✗${NC} $message"
+            ;;
+        "INFO")
+            echo -e "${CYAN}ℹ${NC} $message"
+            ;;
     esac
+}
+
+# Progress bar function
+show_progress() {
+    local current=$1
+    local total=$2
+    local width=50
+    local percentage=$((current * 100 / total))
+    local filled=$((width * current / total))
+    local empty=$((width - filled))
+    
+    printf "\r${CYAN}["
+    printf "${GREEN}%${filled}s" | tr ' ' '█'
+    printf "${GRAY}%${empty}s" | tr ' ' '░'
+    printf "${CYAN}] ${BOLD}${percentage}%%${NC}"
 }
 
 check_root() {
@@ -301,6 +324,7 @@ mtu_finder() {
     fi
     
     current_mtu=$(ip link show "$PRIMARY_IFACE" 2>/dev/null | grep -oP 'mtu \K\d+' || echo "1500")
+    
     echo -e "Interface: ${CYAN}$PRIMARY_IFACE${NC}"
     echo -e "Current MTU: ${CYAN}$current_mtu${NC}\n"
     
@@ -328,7 +352,6 @@ mtu_finder() {
     fi
     
     print_status "OK" "Testing connectivity to $test_ip"
-    
     echo ""
     echo -e "${CYAN}Finding optimal MTU...${NC}\n"
     
@@ -344,7 +367,7 @@ mtu_finder() {
         
         if ping -M do -c 1 -s $payload -W 1 "$test_ip" &>/dev/null; then
             optimal_mtu=$mtu
-            echo -e "${GREEN}✓${NC} MTU $mtu: ${GREEN}OK${NC}     "
+            echo -e "${GREEN}✓${NC} MTU $mtu: ${GREEN}OK${NC}       "
         else
             echo -e "${RED}✗${NC} MTU $mtu: ${RED}Failed${NC}"
             break
@@ -357,8 +380,8 @@ mtu_finder() {
     echo ""
     print_status "OK" "Optimal MTU found: $optimal_mtu"
     print_status "INFO" "Recommended MTU: $recommended_mtu"
-    
     echo ""
+    
     read -p "$(echo -e ${YELLOW}Apply MTU $recommended_mtu? [y/N]:${NC} )" apply_mtu
     
     if [[ $apply_mtu =~ ^[Yy]$ ]]; then
@@ -393,13 +416,13 @@ mtu_finder() {
 }
 
 #==============================================================================
-# DNS Optimizer
+# DNS Optimizer with Progress Bar
 #==============================================================================
 
 optimize_dns() {
     print_header "DNS OPTIMIZER"
     
-    echo -e "${YELLOW}Testing DNS servers to find the fastest...${NC}\n"
+    echo -e "${YELLOW}Testing multiple DNS servers to find the fastest...${NC}\n"
     
     # DNS servers to test
     declare -A dns_servers=(
@@ -409,78 +432,50 @@ optimize_dns() {
         ["OpenDNS"]="208.67.222.222"
         ["Shecan"]="178.22.122.100"
         ["403"]="10.202.10.202"
-        ["Radar"]="10.202.10.10"
-        ["Electro"]="78.157.42.100"
     )
     
     declare -A dns_times
-    local total_dns=${#dns_servers[@]}
-    local current=0
     
-    # Progress bar function
-    show_progress() {
-        local current=$1
-        local total=$2
-        local name=$3
-        local status=$4
-        
-        local percent=$((current * 100 / total))
-        local filled=$((current * 40 / total))
-        local empty=$((40 - filled))
-        
-        echo -ne "\r${CYAN}Progress: ["
-        printf "${GREEN}█%.0s" $(seq 1 $filled)
-        printf "${GRAY}░%.0s" $(seq 1 $empty)
-        echo -ne "${CYAN}] ${percent}%${NC} - ${status}"
-    }
+    local total=${#dns_servers[@]}
+    local count=0
     
-    echo -e "${CYAN}Testing $total_dns DNS servers...${NC}\n"
+    echo -e "${CYAN}${BOLD}Testing DNS Servers:${NC}\n"
     
     # Test each DNS
     for name in "${!dns_servers[@]}"; do
-        current=$((current + 1))
         ip="${dns_servers[$name]}"
+        count=$((count + 1))
         
-        show_progress $current $total_dns "$name" "Testing $name ($ip)..."
+        # Show progress bar
+        show_progress $count $total
+        echo -ne " Testing ${CYAN}$name${NC}..."
         
-        # Test with timeout using dig
+        # Test with dig if available
         if command -v dig &>/dev/null; then
-            # Use timeout command if available
-            if command -v timeout &>/dev/null; then
-                response_time=$(timeout 3 dig @$ip google.com +time=2 +tries=1 2>/dev/null | grep "Query time:" | awk '{print $4}')
-            else
-                response_time=$(dig @$ip google.com +time=2 +tries=1 2>/dev/null | grep "Query time:" | awk '{print $4}')
-            fi
+            response_time=$(dig @$ip google.com +stats 2>/dev/null | grep "Query time:" | awk '{print $4}')
             
-            if [ -n "$response_time" ] && [ "$response_time" -gt 0 ] 2>/dev/null; then
+            if [ -n "$response_time" ]; then
                 dns_times["$name"]="$response_time"
+                echo -e "\r$(show_progress $count $total) ${GREEN}✓${NC} $name ($ip): ${CYAN}${response_time}ms${NC}                    "
+            else
+                echo -e "\r$(show_progress $count $total) ${RED}✗${NC} $name ($ip): ${RED}Failed${NC}                    "
             fi
         else
-            # Fallback to ping with timeout
-            ping_time=$(ping -c 2 -W 2 $ip 2>/dev/null | tail -1 | awk -F'/' '{print $5}' | cut -d'.' -f1)
-            if [ -n "$ping_time" ] && [ "$ping_time" -gt 0 ] 2>/dev/null; then
+            # Fallback to ping
+            ping_time=$(ping -c 3 -W 2 $ip 2>/dev/null | tail -1 | awk -F'/' '{print $5}' | cut -d'.' -f1)
+            
+            if [ -n "$ping_time" ]; then
                 dns_times["$name"]="$ping_time"
+                echo -e "\r$(show_progress $count $total) ${GREEN}✓${NC} $name ($ip): ${CYAN}~${ping_time}ms${NC}                    "
+            else
+                echo -e "\r$(show_progress $count $total) ${RED}✗${NC} $name ($ip): ${RED}Failed${NC}                    "
             fi
         fi
         
-        sleep 0.1
+        sleep 0.2
     done
     
-    # Clear progress line
-    echo -ne "\r$(printf ' %.0s' {1..80})\r"
-    
-    echo -e "\n${CYAN}${BOLD}Test Results:${NC}\n"
-    
-    # Display results
-    for name in "${!dns_servers[@]}"; do
-        ip="${dns_servers[$name]}"
-        if [ -n "${dns_times[$name]}" ]; then
-            time="${dns_times[$name]}"
-            echo -e "${GREEN}✓${NC} ${BOLD}$name${NC} ($ip): ${CYAN}${time}ms${NC}"
-        else
-            echo -e "${RED}✗${NC} ${BOLD}$name${NC} ($ip): ${RED}Timeout/Failed${NC}"
-        fi
-    done
+    echo ""
     
     # Find fastest
     fastest_dns=""
@@ -495,7 +490,6 @@ optimize_dns() {
     done
     
     if [ -z "$fastest_dns" ]; then
-        echo ""
         print_status "FAIL" "No DNS servers responded"
         press_enter
         return
@@ -503,50 +497,54 @@ optimize_dns() {
     
     fastest_ip="${dns_servers[$fastest_dns]}"
     
+    echo -e "${CYAN}${BOLD}═══════════════════════════════════════════════════════════${NC}\n"
+    print_status "OK" "Fastest DNS: ${BOLD}$fastest_dns${NC} ($fastest_ip) - ${GREEN}${fastest_time}ms${NC}"
     echo ""
-    echo -e "${GREEN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${GREEN}🏆 FASTEST DNS: ${YELLOW}${BOLD}$fastest_dns${NC} ${GREEN}($fastest_ip)${NC} - ${CYAN}${BOLD}${fastest_time}ms${NC}"
-    echo -e "${GREEN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    
+    # Show ranking
+    echo -e "${CYAN}${BOLD}DNS Ranking:${NC}"
+    echo ""
+    
+    # Sort results
+    for name in $(for n in "${!dns_times[@]}"; do echo "$n ${dns_times[$n]}"; done | sort -k2 -n | awk '{print $1}'); do
+        ip="${dns_servers[$name]}"
+        time="${dns_times[$name]}"
+        
+        if [ "$name" = "$fastest_dns" ]; then
+            echo -e "  ${GREEN}🥇 $name${NC} ($ip) - ${GREEN}${time}ms${NC}"
+        else
+            echo -e "  ${CYAN}  $name${NC} ($ip) - ${CYAN}${time}ms${NC}"
+        fi
+    done
     
     echo ""
-    read -p "$(echo -e ${YELLOW}Apply this DNS? [y/N]:${NC} )" apply_dns
+    echo -e "${CYAN}${BOLD}═══════════════════════════════════════════════════════════${NC}\n"
+    
+    read -p "$(echo -e ${YELLOW}Apply fastest DNS ($fastest_dns)? [y/N]:${NC} )" apply_dns
     
     if [[ $apply_dns =~ ^[Yy]$ ]]; then
         # Backup resolv.conf
         backup_file "/etc/resolv.conf"
         
-        # Remove immutable flag if set
-        chattr -i /etc/resolv.conf 2>/dev/null || true
-        
         # Set DNS
         cat > /etc/resolv.conf << EOF
-# DNS Configuration - Set by Server Tool
-# Fastest: $fastest_dns ($fastest_ip) - ${fastest_time}ms
 nameserver $fastest_ip
 nameserver 8.8.8.8
-nameserver 1.1.1.1
 EOF
         
         # Make immutable (prevent changes)
         chattr +i /etc/resolv.conf 2>/dev/null || true
         
         print_status "OK" "DNS set to $fastest_dns ($fastest_ip)"
-        print_status "INFO" "Configuration saved and protected"
         print_status "INFO" "DNS will persist after reboot"
-        
-        # Test new DNS
-        echo ""
-        echo -e "${CYAN}Testing new DNS configuration...${NC}"
-        if nslookup google.com &>/dev/null; then
-            print_status "OK" "DNS is working correctly"
-        else
-            print_status "WARN" "DNS test failed, but configuration saved"
-        fi
     fi
     
     press_enter
 }
 
+#==============================================================================
+# Block/Unblock ICMP (Ping)
+#==============================================================================
 
 manage_ping() {
     print_header "BLOCK/UNBLOCK SERVER PING"
@@ -605,7 +603,6 @@ optimize_server() {
     
     echo -e "${YELLOW}This will apply comprehensive system optimizations${NC}"
     echo -e "${YELLOW}Including: Memory, Network, File System, and Security${NC}\n"
-    
     echo -e "${RED}⚠ WARNING: This will modify system configuration files${NC}\n"
     
     read -p "$(echo -e ${YELLOW}Continue? [y/N]:${NC} )" confirm
@@ -687,7 +684,6 @@ EOF
     sysctl -p > /dev/null 2>&1
     
     print_status "OK" "System optimization completed!"
-    
     echo ""
     echo -e "${CYAN}Applied optimizations:${NC}"
     echo -e "  ${GREEN}✓${NC} Memory management (swappiness, dirty ratio)"
@@ -695,7 +691,6 @@ EOF
     echo -e "  ${GREEN}✓${NC} Network buffers and backlog"
     echo -e "  ${GREEN}✓${NC} TCP parameters (timeouts, memory)"
     echo -e "  ${GREEN}✓${NC} Process and file descriptor limits"
-    
     echo ""
     print_status "INFO" "All settings will persist after reboot"
     print_status "INFO" "Backups saved in: $BACKUP_DIR"
@@ -720,7 +715,7 @@ check_ip_reputation() {
         return
     fi
     
-    echo -e "${GREEN}✓${NC} Your Public IP: ${YELLOW}${BOLD}$PUBLIC_IP${NC}               \n"
+    echo -e "${GREEN}✓${NC} Your Public IP: ${YELLOW}${BOLD}$PUBLIC_IP${NC}       \n"
     
     local total_checks=0
     local passed_checks=0
@@ -741,10 +736,11 @@ check_ip_reputation() {
         is_proxy=$(echo "$ip_info" | grep -o '"proxy":true' | wc -l)
         is_hosting=$(echo "$ip_info" | grep -o '"hosting":true' | wc -l)
         
-        echo -e "${GREEN}✓${NC} Location: ${CYAN}$city, $country${NC}                    "
+        echo -e "${GREEN}✓${NC} Location: ${CYAN}$city, $country${NC}       "
         echo -e "${GREEN}✓${NC} ISP: ${CYAN}${isp:0:50}${NC}"
         
         total_checks=$((total_checks + 1))
+        
         if [ $is_proxy -eq 0 ]; then
             passed_checks=$((passed_checks + 1))
             echo -e "${GREEN}✓${NC} Proxy: ${GREEN}Not detected${NC}"
@@ -755,7 +751,7 @@ check_ip_reputation() {
         
         [ $is_hosting -eq 1 ] && echo -e "${YELLOW}⚠${NC} Type: ${YELLOW}Hosting/VPS/Datacenter${NC}" || echo -e "${GREEN}✓${NC} Type: ${GREEN}Residential${NC}"
     else
-        echo -e "${RED}✗${NC} Check failed                        "
+        echo -e "${RED}✗${NC} Check failed       "
     fi
     echo ""
     
@@ -776,7 +772,7 @@ check_ip_reputation() {
         if [ -n "$fraud" ]; then
             if [ "$fraud" -lt 50 ]; then
                 passed_checks=$((passed_checks + 1))
-                echo -e "${GREEN}✓${NC} Fraud Score: ${GREEN}$fraud/100${NC} (Low)           "
+                echo -e "${GREEN}✓${NC} Fraud Score: ${GREEN}$fraud/100${NC} (Low)       "
             elif [ "$fraud" -lt 75 ]; then
                 echo -e "${YELLOW}⚠${NC} Fraud Score: ${YELLOW}$fraud/100${NC} (Medium)"
             else
@@ -789,7 +785,7 @@ check_ip_reputation() {
         [ $proxy -eq 0 ] && echo -e "${GREEN}✓${NC} Proxy: ${GREEN}Not detected${NC}" || echo -e "${RED}✗${NC} Proxy: ${RED}Detected${NC}"
         [ $tor -eq 0 ] && echo -e "${GREEN}✓${NC} Tor: ${GREEN}Not detected${NC}" || echo -e "${RED}✗${NC} Tor: ${RED}Detected${NC}"
     else
-        echo -e "${RED}✗${NC} Check failed                    "
+        echo -e "${RED}✗${NC} Check failed       "
     fi
     echo ""
     
@@ -803,16 +799,16 @@ check_ip_reputation() {
         ports=$(echo "$shodan" | grep -o '"ports":\[[^]]*\]' | grep -o '[0-9]*' | tr '\n' ',' | sed 's/,$//')
         vulns=$(echo "$shodan" | grep -o '"vulns":\[[^]]*\]' | grep -o 'CVE-[0-9-]*' | wc -l)
         
-        [ -n "$ports" ] && echo -e "${YELLOW}⚠${NC} Ports: ${YELLOW}$ports${NC}        " || echo -e "${GREEN}✓${NC} No common ports detected              "
+        [ -n "$ports" ] && echo -e "${YELLOW}⚠${NC} Ports: ${YELLOW}$ports${NC}       " || echo -e "${GREEN}✓${NC} No common ports detected       "
         
         if [ "$vulns" -gt 0 ]; then
             echo -e "${RED}✗${NC} Vulnerabilities: ${RED}$vulns CVEs${NC}"
             critical_issues=$((critical_issues + 1))
         else
-            echo -e "${GREEN}✓${NC} No known vulnerabilities                        "
+            echo -e "${GREEN}✓${NC} No known vulnerabilities       "
         fi
     else
-        echo -e "${GREEN}✓${NC} No data (not heavily scanned)      "
+        echo -e "${GREEN}✓${NC} No data (not heavily scanned)       "
     fi
     echo ""
     
@@ -835,10 +831,10 @@ check_ip_reputation() {
     
     if [ $blacklisted -eq 0 ]; then
         passed_checks=$((passed_checks + 1))
-        echo -e "${GREEN}✓${NC} Clean (0/6 lists)${NC}            "
+        echo -e "${GREEN}✓${NC} Clean (0/6 lists)${NC}       "
     else
         echo -e "${RED}✗${NC} Listed in $blacklisted/6 lists${NC}"
-        echo -e "   ${RED}$bl_names${NC}"
+        echo -e "  ${RED}$bl_names${NC}"
         critical_issues=$((critical_issues + 1))
     fi
     echo ""
@@ -854,13 +850,24 @@ check_ip_reputation() {
         total_checks=$((total_checks + 1))
         
         case "$block" in
-            0) passed_checks=$((passed_checks + 1)); echo -e "${GREEN}✓${NC} Residential/Business IP                  " ;;
-            1) echo -e "${RED}✗${NC} Proxy/VPN detected${NC}"; critical_issues=$((critical_issues + 1)) ;;
-            2) echo -e "${YELLOW}⚠${NC} Hosting/Datacenter${NC}" ;;
-            *) total_checks=$((total_checks - 1)); echo -e "${YELLOW}⚠${NC} Unknown${NC}" ;;
+            0)
+                passed_checks=$((passed_checks + 1))
+                echo -e "${GREEN}✓${NC} Residential/Business IP       "
+                ;;
+            1)
+                echo -e "${RED}✗${NC} Proxy/VPN detected${NC}"
+                critical_issues=$((critical_issues + 1))
+                ;;
+            2)
+                echo -e "${YELLOW}⚠${NC} Hosting/Datacenter${NC}"
+                ;;
+            *)
+                total_checks=$((total_checks - 1))
+                echo -e "${YELLOW}⚠${NC} Unknown${NC}"
+                ;;
         esac
     else
-        echo -e "${YELLOW}⚠${NC} Check unavailable                         "
+        echo -e "${YELLOW}⚠${NC} Check unavailable       "
     fi
     echo ""
     
@@ -886,10 +893,10 @@ check_ip_reputation() {
             fi
         else
             total_checks=$((total_checks - 1))
-            echo -e "${YELLOW}⚠${NC} Could not parse              "
+            echo -e "${YELLOW}⚠${NC} Could not parse       "
         fi
     else
-        echo -e "${YELLOW}⚠${NC} Check failed                         "
+        echo -e "${YELLOW}⚠${NC} Check failed       "
     fi
     echo ""
     
@@ -905,7 +912,7 @@ check_ip_reputation() {
         
         if [ "$prob" -lt 50 ]; then
             passed_checks=$((passed_checks + 1))
-            echo -e "${GREEN}✓${NC} Probability: ${GREEN}${prob}%${NC} (Low)              "
+            echo -e "${GREEN}✓${NC} Probability: ${GREEN}${prob}%${NC} (Low)       "
         elif [ "$prob" -lt 75 ]; then
             echo -e "${YELLOW}⚠${NC} Probability: ${YELLOW}${prob}%${NC}"
         else
@@ -913,7 +920,7 @@ check_ip_reputation() {
             critical_issues=$((critical_issues + 1))
         fi
     else
-        echo -e "${YELLOW}⚠${NC} Check unavailable                     "
+        echo -e "${YELLOW}⚠${NC} Check unavailable       "
     fi
     echo ""
     
@@ -922,11 +929,11 @@ check_ip_reputation() {
     echo -ne "${GRAY}Checking...${NC}\r"
     
     abuse_page=$(curl -s --max-time 5 "https://www.abuseipdb.com/check/$PUBLIC_IP" 2>/dev/null)
-    
     total_checks=$((total_checks + 1))
+    
     if echo "$abuse_page" | grep -qi "whitelisted\|not found\|clean\|0 reports"; then
         passed_checks=$((passed_checks + 1))
-        echo -e "${GREEN}✓${NC} No abuse reports${NC}              "
+        echo -e "${GREEN}✓${NC} No abuse reports${NC}       "
     elif echo "$abuse_page" | grep -qi "reported\|blacklist"; then
         echo -e "${RED}✗${NC} Abuse reports found${NC}"
         critical_issues=$((critical_issues + 1))
@@ -964,12 +971,11 @@ check_ip_reputation() {
     echo -ne "${GRAY}"
     printf '░%.0s' $(seq 1 $empty)
     echo -e "${NC} ${BOLD}${score}%${NC}"
-    
     echo ""
+    
     echo -e "${BOLD}Status: ${color}$status${NC}"
     echo -e "Passed: ${GREEN}$passed_checks${NC}/${CYAN}$total_checks${NC}"
     [ $critical_issues -gt 0 ] && echo -e "Critical: ${RED}$critical_issues${NC}"
-    
     echo ""
     
     if [ $score -lt 80 ]; then
@@ -986,23 +992,699 @@ check_ip_reputation() {
     press_enter
 }
 
+#==============================================================================
+# Service & Log Management
+#==============================================================================
+
+check_service_status() {
+    local service=$1
+    local display_name=$2
+    
+    if systemctl list-units --full -all | grep -Fq "$service"; then
+        if systemctl is-active --quiet "$service"; then
+            echo -e "${GREEN}✓${NC} $display_name: ${GREEN}Running${NC}"
+            return 0
+        else
+            echo -e "${RED}✗${NC} $display_name: ${RED}Stopped${NC}"
+            return 1
+        fi
+    else
+        echo -e "${GRAY}○${NC} $display_name: ${GRAY}Not installed${NC}"
+        return 2
+    fi
+}
+
+view_service_logs() {
+    local service=$1
+    local display_name=$2
+    local lines=${3:-50}
+    
+    print_header "$display_name LOGS (Last $lines lines)"
+    
+    if systemctl list-units --full -all | grep -Fq "$service"; then
+        echo -e "${CYAN}${BOLD}Service Status:${NC}"
+        systemctl status "$service" --no-pager -l | head -15
+        echo ""
+        echo -e "${CYAN}${BOLD}Recent Logs:${NC}\n"
+        journalctl -u "$service" -n "$lines" --no-pager | tail -50
+    else
+        print_status "WARN" "$display_name is not installed"
+    fi
+    
+    press_enter
+}
+
+view_error_logs() {
+    local service=$1
+    local display_name=$2
+    local lines=${3:-50}
+    
+    print_header "$display_name ERROR LOGS"
+    
+    if systemctl list-units --full -all | grep -Fq "$service"; then
+        echo -e "${RED}${BOLD}Errors and Warnings:${NC}\n"
+        journalctl -u "$service" -p err..warning -n "$lines" --no-pager | tail -50
+        
+        if [ -z "$(journalctl -u "$service" -p err..warning -n 1 --no-pager 2>/dev/null)" ]; then
+            echo -e "${GREEN}✓ No errors found in recent logs${NC}"
+        fi
+    else
+        print_status "WARN" "$display_name is not installed"
+    fi
+    
+    press_enter
+}
+
+manage_php_fpm() {
+    while true; do
+        print_header "PHP-FPM MANAGEMENT"
+        
+        # Detect PHP-FPM versions
+        local php_versions=()
+        for ver in 8.3 8.2 8.1 8.0 7.4 7.3 7.2; do
+            if systemctl list-units --full -all | grep -Fq "php${ver}-fpm"; then
+                php_versions+=("php${ver}-fpm")
+            fi
+        done
+        
+        if [ ${#php_versions[@]} -eq 0 ]; then
+            print_status "WARN" "No PHP-FPM services found"
+            press_enter
+            return
+        fi
+        
+        echo -e "${CYAN}${BOLD}Installed PHP-FPM versions:${NC}\n"
+        
+        for php_service in "${php_versions[@]}"; do
+            check_service_status "$php_service" "$php_service"
+        done
+        
+        echo ""
+        echo "  1) View PHP-FPM Logs"
+        echo "  2) View PHP-FPM Error Logs"
+        echo "  3) Restart PHP-FPM"
+        echo "  4) Check PHP-FPM Status"
+        echo "  5) View PHP-FPM Pool Configuration"
+        echo "  0) Back"
+        echo ""
+        read -p "Choice: " choice
+        
+        case $choice in
+            1)
+                if [ ${#php_versions[@]} -eq 1 ]; then
+                    view_service_logs "${php_versions[0]}" "PHP-FPM"
+                else
+                    echo ""
+                    echo -e "${CYAN}Select PHP version:${NC}"
+                    select php_service in "${php_versions[@]}"; do
+                        [ -n "$php_service" ] && view_service_logs "$php_service" "$php_service" && break
+                    done
+                fi
+                ;;
+            2)
+                if [ ${#php_versions[@]} -eq 1 ]; then
+                    view_error_logs "${php_versions[0]}" "PHP-FPM"
+                else
+                    echo ""
+                    echo -e "${CYAN}Select PHP version:${NC}"
+                    select php_service in "${php_versions[@]}"; do
+                        [ -n "$php_service" ] && view_error_logs "$php_service" "$php_service" && break
+                    done
+                fi
+                ;;
+            3)
+                if [ ${#php_versions[@]} -eq 1 ]; then
+                    systemctl restart "${php_versions[0]}"
+                    print_status "OK" "PHP-FPM restarted"
+                else
+                    echo ""
+                    echo -e "${CYAN}Select PHP version to restart:${NC}"
+                    select php_service in "${php_versions[@]}" "All"; do
+                        if [ "$php_service" = "All" ]; then
+                            for svc in "${php_versions[@]}"; do
+                                systemctl restart "$svc"
+                                print_status "OK" "$svc restarted"
+                            done
+                        elif [ -n "$php_service" ]; then
+                            systemctl restart "$php_service"
+                            print_status "OK" "$php_service restarted"
+                        fi
+                        break
+                    done
+                fi
+                press_enter
+                ;;
+            4)
+                print_header "PHP-FPM STATUS"
+                for php_service in "${php_versions[@]}"; do
+                    echo -e "\n${CYAN}${BOLD}=== $php_service ===${NC}\n"
+                    systemctl status "$php_service" --no-pager -l
+                done
+                press_enter
+                ;;
+            5)
+                print_header "PHP-FPM POOL CONFIGURATION"
+                for php_service in "${php_versions[@]}"; do
+                    version=$(echo "$php_service" | grep -oP '\d+\.\d+')
+                    pool_dir="/etc/php/$version/fpm/pool.d"
+                    
+                    if [ -d "$pool_dir" ]; then
+                        echo -e "${CYAN}${BOLD}=== PHP $version Pools ===${NC}\n"
+                        ls -1 "$pool_dir"/*.conf 2>/dev/null | while read conf; do
+                            echo -e "${GREEN}$(basename $conf)${NC}"
+                        done
+                        echo ""
+                    fi
+                done
+                press_enter
+                ;;
+            0)
+                return
+                ;;
+            *)
+                print_status "FAIL" "Invalid choice"
+                sleep 1
+                ;;
+        esac
+    done
+}
+
+manage_nginx() {
+    while true; do
+        print_header "NGINX MANAGEMENT"
+        
+        check_service_status "nginx" "Nginx"
+        
+        echo ""
+        echo "  1) View Nginx Access Logs"
+        echo "  2) View Nginx Error Logs"
+        echo "  3) Restart Nginx"
+        echo "  4) Test Nginx Configuration"
+        echo "  5) View Nginx Status"
+        echo "  6) View Active Connections"
+        echo "  0) Back"
+        echo ""
+        read -p "Choice: " choice
+        
+        case $choice in
+            1)
+                print_header "NGINX ACCESS LOGS"
+                if [ -f /var/log/nginx/access.log ]; then
+                    tail -50 /var/log/nginx/access.log
+                else
+                    print_status "WARN" "Access log not found"
+                fi
+                press_enter
+                ;;
+            2)
+                print_header "NGINX ERROR LOGS"
+                if [ -f /var/log/nginx/error.log ]; then
+                    tail -50 /var/log/nginx/error.log
+                    
+                    if [ ! -s /var/log/nginx/error.log ]; then
+                        echo -e "${GREEN}✓ No errors in log${NC}"
+                    fi
+                else
+                    print_status "WARN" "Error log not found"
+                fi
+                press_enter
+                ;;
+            3)
+                nginx -t &>/dev/null
+                if [ $? -eq 0 ]; then
+                    systemctl restart nginx
+                    print_status "OK" "Nginx restarted successfully"
+                else
+                    print_status "FAIL" "Configuration test failed. Not restarting."
+                    nginx -t
+                fi
+                press_enter
+                ;;
+            4)
+                print_header "NGINX CONFIGURATION TEST"
+                nginx -t
+                press_enter
+                ;;
+            5)
+                view_service_logs "nginx" "Nginx"
+                ;;
+            6)
+                print_header "NGINX ACTIVE CONNECTIONS"
+                if command -v ss &>/dev/null; then
+                    echo -e "${CYAN}Listening on:${NC}"
+                    ss -tlnp | grep nginx
+                    echo ""
+                    echo -e "${CYAN}Connection Statistics:${NC}"
+                    ss -s
+                else
+                    netstat -tlnp | grep nginx
+                fi
+                press_enter
+                ;;
+            0)
+                return
+                ;;
+            *)
+                print_status "FAIL" "Invalid choice"
+                sleep 1
+                ;;
+        esac
+    done
+}
+
+manage_apache() {
+    while true; do
+        print_header "APACHE MANAGEMENT"
+        
+        # Check both apache2 and httpd
+        local apache_service=""
+        if systemctl list-units --full -all | grep -Fq "apache2"; then
+            apache_service="apache2"
+        elif systemctl list-units --full -all | grep -Fq "httpd"; then
+            apache_service="httpd"
+        fi
+        
+        if [ -z "$apache_service" ]; then
+            print_status "WARN" "Apache is not installed"
+            press_enter
+            return
+        fi
+        
+        check_service_status "$apache_service" "Apache"
+        
+        echo ""
+        echo "  1) View Apache Access Logs"
+        echo "  2) View Apache Error Logs"
+        echo "  3) Restart Apache"
+        echo "  4) Test Apache Configuration"
+        echo "  5) View Apache Status"
+        echo "  6) View Loaded Modules"
+        echo "  0) Back"
+        echo ""
+        read -p "Choice: " choice
+        
+        case $choice in
+            1)
+                print_header "APACHE ACCESS LOGS"
+                if [ -f /var/log/apache2/access.log ]; then
+                    tail -50 /var/log/apache2/access.log
+                elif [ -f /var/log/httpd/access_log ]; then
+                    tail -50 /var/log/httpd/access_log
+                else
+                    print_status "WARN" "Access log not found"
+                fi
+                press_enter
+                ;;
+            2)
+                print_header "APACHE ERROR LOGS"
+                if [ -f /var/log/apache2/error.log ]; then
+                    tail -50 /var/log/apache2/error.log
+                elif [ -f /var/log/httpd/error_log ]; then
+                    tail -50 /var/log/httpd/error_log
+                else
+                    print_status "WARN" "Error log not found"
+                fi
+                press_enter
+                ;;
+            3)
+                if command -v apachectl &>/dev/null; then
+                    apachectl configtest &>/dev/null
+                    if [ $? -eq 0 ]; then
+                        systemctl restart "$apache_service"
+                        print_status "OK" "Apache restarted successfully"
+                    else
+                        print_status "FAIL" "Configuration test failed"
+                        apachectl configtest
+                    fi
+                else
+                    systemctl restart "$apache_service"
+                    print_status "OK" "Apache restarted"
+                fi
+                press_enter
+                ;;
+            4)
+                print_header "APACHE CONFIGURATION TEST"
+                if command -v apachectl &>/dev/null; then
+                    apachectl configtest
+                else
+                    print_status "WARN" "apachectl not found"
+                fi
+                press_enter
+                ;;
+            5)
+                view_service_logs "$apache_service" "Apache"
+                ;;
+            6)
+                print_header "APACHE LOADED MODULES"
+                if command -v apachectl &>/dev/null; then
+                    apachectl -M
+                elif command -v apache2ctl &>/dev/null; then
+                    apache2ctl -M
+                else
+                    print_status "WARN" "Cannot list modules"
+                fi
+                press_enter
+                ;;
+            0)
+                return
+                ;;
+            *)
+                print_status "FAIL" "Invalid choice"
+                sleep 1
+                ;;
+        esac
+    done
+}
+
+manage_mysql() {
+    while true; do
+        print_header "MYSQL/MARIADB MANAGEMENT"
+        
+        local mysql_service=""
+        if systemctl list-units --full -all | grep -Fq "mysql"; then
+            mysql_service="mysql"
+        elif systemctl list-units --full -all | grep -Fq "mariadb"; then
+            mysql_service="mariadb"
+        fi
+        
+        if [ -z "$mysql_service" ]; then
+            print_status "WARN" "MySQL/MariaDB is not installed"
+            press_enter
+            return
+        fi
+        
+        check_service_status "$mysql_service" "MySQL/MariaDB"
+        
+        echo ""
+        echo "  1) View MySQL Logs"
+        echo "  2) View MySQL Error Logs"
+        echo "  3) Restart MySQL"
+        echo "  4) View MySQL Status"
+        echo "  5) Show MySQL Processes"
+        echo "  6) Check MySQL Variables"
+        echo "  0) Back"
+        echo ""
+        read -p "Choice: " choice
+        
+        case $choice in
+            1)
+                view_service_logs "$mysql_service" "MySQL"
+                ;;
+            2)
+                print_header "MYSQL ERROR LOGS"
+                if [ -f /var/log/mysql/error.log ]; then
+                    tail -50 /var/log/mysql/error.log
+                elif [ -f /var/log/mysqld.log ]; then
+                    tail -50 /var/log/mysqld.log
+                else
+                    journalctl -u "$mysql_service" -p err -n 50 --no-pager
+                fi
+                press_enter
+                ;;
+            3)
+                systemctl restart "$mysql_service"
+                print_status "OK" "MySQL restarted"
+                press_enter
+                ;;
+            4)
+                view_service_logs "$mysql_service" "MySQL"
+                ;;
+            5)
+                print_header "MYSQL PROCESSES"
+                if command -v mysql &>/dev/null; then
+                    mysql -e "SHOW PROCESSLIST;" 2>/dev/null || print_status "WARN" "Cannot connect to MySQL"
+                else
+                    print_status "WARN" "MySQL client not found"
+                fi
+                press_enter
+                ;;
+            6)
+                print_header "MYSQL KEY VARIABLES"
+                if command -v mysql &>/dev/null; then
+                    mysql -e "SHOW VARIABLES LIKE '%max_connections%'; SHOW VARIABLES LIKE '%buffer%';" 2>/dev/null | head -20
+                else
+                    print_status "WARN" "MySQL client not found"
+                fi
+                press_enter
+                ;;
+            0)
+                return
+                ;;
+            *)
+                print_status "FAIL" "Invalid choice"
+                sleep 1
+                ;;
+        esac
+    done
+}
+
+manage_redis() {
+    while true; do
+        print_header "REDIS MANAGEMENT"
+        
+        local redis_service=""
+        if systemctl list-units --full -all | grep -Fq "redis-server"; then
+            redis_service="redis-server"
+        elif systemctl list-units --full -all | grep -Fq "redis"; then
+            redis_service="redis"
+        fi
+        
+        if [ -z "$redis_service" ]; then
+            print_status "WARN" "Redis is not installed"
+            press_enter
+            return
+        fi
+        
+        check_service_status "$redis_service" "Redis"
+        
+        echo ""
+        echo "  1) View Redis Logs"
+        echo "  2) Restart Redis"
+        echo "  3) View Redis Status"
+        echo "  4) Check Redis Info"
+        echo "  5) Monitor Redis"
+        echo "  0) Back"
+        echo ""
+        read -p "Choice: " choice
+        
+        case $choice in
+            1)
+                view_service_logs "$redis_service" "Redis"
+                ;;
+            2)
+                systemctl restart "$redis_service"
+                print_status "OK" "Redis restarted"
+                press_enter
+                ;;
+            3)
+                view_service_logs "$redis_service" "Redis"
+                ;;
+            4)
+                print_header "REDIS INFO"
+                if command -v redis-cli &>/dev/null; then
+                    redis-cli INFO | head -50
+                else
+                    print_status "WARN" "redis-cli not found"
+                fi
+                press_enter
+                ;;
+            5)
+                print_header "REDIS MONITOR (Press Ctrl+C to stop)"
+                echo ""
+                if command -v redis-cli &>/dev/null; then
+                    timeout 10 redis-cli MONITOR || print_status "INFO" "Monitoring stopped"
+                else
+                    print_status "WARN" "redis-cli not found"
+                fi
+                press_enter
+                ;;
+            0)
+                return
+                ;;
+            *)
+                print_status "FAIL" "Invalid choice"
+                sleep 1
+                ;;
+        esac
+    done
+}
+
+manage_docker() {
+    while true; do
+        print_header "DOCKER MANAGEMENT"
+        
+        if ! command -v docker &>/dev/null; then
+            print_status "WARN" "Docker is not installed"
+            press_enter
+            return
+        fi
+        
+        check_service_status "docker" "Docker"
+        
+        echo ""
+        echo "  1) List Running Containers"
+        echo "  2) List All Containers"
+        echo "  3) View Container Logs"
+        echo "  4) View Docker Images"
+        echo "  5) Docker System Info"
+        echo "  6) Docker Stats (Live)"
+        echo "  7) View Failed Container Logs"
+        echo "  0) Back"
+        echo ""
+        read -p "Choice: " choice
+        
+        case $choice in
+            1)
+                print_header "RUNNING CONTAINERS"
+                docker ps
+                press_enter
+                ;;
+            2)
+                print_header "ALL CONTAINERS"
+                docker ps -a
+                press_enter
+                ;;
+            3)
+                print_header "CONTAINER LOGS"
+                echo ""
+                docker ps -a --format "{{.Names}}" | nl
+                echo ""
+                read -p "Enter container name or number: " container
+                
+                if [[ "$container" =~ ^[0-9]+$ ]]; then
+                    container=$(docker ps -a --format "{{.Names}}" | sed -n "${container}p")
+                fi
+                
+                if [ -n "$container" ]; then
+                    echo ""
+                    print_header "LOGS: $container"
+                    docker logs --tail 100 "$container" 2>&1
+                fi
+                press_enter
+                ;;
+            4)
+                print_header "DOCKER IMAGES"
+                docker images
+                press_enter
+                ;;
+            5)
+                print_header "DOCKER SYSTEM INFO"
+                docker info
+                press_enter
+                ;;
+            6)
+                print_header "DOCKER STATS (Press Ctrl+C to stop)"
+                echo ""
+                docker stats
+                press_enter
+                ;;
+            7)
+                print_header "FAILED/EXITED CONTAINERS"
+                docker ps -a --filter "status=exited" --format "table {{.Names}}\t{{.Status}}\t{{.Image}}"
+                echo ""
+                echo -e "${CYAN}Recent error logs:${NC}\n"
+                docker ps -a --filter "status=exited" --format "{{.Names}}" | while read container; do
+                    echo -e "${RED}=== $container ===${NC}"
+                    docker logs --tail 20 "$container" 2>&1 | grep -i error | head -5
+                    echo ""
+                done
+                press_enter
+                ;;
+            0)
+                return
+                ;;
+            *)
+                print_status "FAIL" "Invalid choice"
+                sleep 1
+                ;;
+        esac
+    done
+}
+
+service_log_menu() {
+    while true; do
+        print_banner
+        print_header "SERVICE & LOG MANAGEMENT"
+        
+        echo -e "${CYAN}${BOLD}Service Status Overview:${NC}\n"
+        
+        check_service_status "nginx" "Nginx"
+        check_service_status "apache2" "Apache" || check_service_status "httpd" "Apache"
+        check_service_status "php8.3-fpm" "PHP-FPM" || check_service_status "php-fpm" "PHP-FPM"
+        check_service_status "mysql" "MySQL" || check_service_status "mariadb" "MariaDB"
+        check_service_status "redis-server" "Redis" || check_service_status "redis" "Redis"
+        check_service_status "docker" "Docker"
+        
+        echo ""
+        echo -e "${WHITE} 1)${NC} 🔧 Nginx Management"
+        echo -e "${WHITE} 2)${NC} 🔧 Apache Management"
+        echo -e "${WHITE} 3)${NC} 🐘 PHP-FPM Management"
+        echo -e "${WHITE} 4)${NC} 🗄️  MySQL/MariaDB Management"
+        echo -e "${WHITE} 5)${NC} 🔴 Redis Management"
+        echo -e "${WHITE} 6)${NC} 🐳 Docker Management"
+        echo -e "${WHITE} 7)${NC} 📊 System Logs (journalctl)"
+        echo -e "${WHITE} 0)${NC} ← Back to Main Menu"
+        echo ""
+        read -p "$(echo -e ${YELLOW}Select option:${NC} )" choice
+        
+        case $choice in
+            1) manage_nginx ;;
+            2) manage_apache ;;
+            3) manage_php_fpm ;;
+            4) manage_mysql ;;
+            5) manage_redis ;;
+            6) manage_docker ;;
+            7)
+                print_header "SYSTEM LOGS"
+                echo "  1) View last 100 system logs"
+                echo "  2) View system errors only"
+                echo "  3) View logs since last boot"
+                echo "  0) Back"
+                echo ""
+                read -p "Choice: " log_choice
+                
+                case $log_choice in
+                    1)
+                        print_header "LAST 100 SYSTEM LOGS"
+                        journalctl -n 100 --no-pager
+                        press_enter
+                        ;;
+                    2)
+                        print_header "SYSTEM ERRORS"
+                        journalctl -p err -n 50 --no-pager
+                        press_enter
+                        ;;
+                    3)
+                        print_header "LOGS SINCE BOOT"
+                        journalctl -b --no-pager | tail -100
+                        press_enter
+                        ;;
+                esac
+                ;;
+            0) break ;;
+            *) print_status "FAIL" "Invalid option"; sleep 1 ;;
+        esac
+    done
+}
+
+#==============================================================================
+# Network Optimization Menu
+#==============================================================================
 
 network_optimization_menu() {
     while true; do
         print_banner
         show_system_info
-        
         print_header "NETWORK & SERVER OPTIMIZATION"
         
-        echo -e "${WHITE}  1)${NC} Install BBR (TCP Congestion Control)"
-        echo -e "${WHITE}  2)${NC} Install Hybla (TCP for High Latency)"
-        echo -e "${WHITE}  3)${NC} Remove TCP Optimization (BBR/Hybla)"
-        echo -e "${WHITE}  4)${NC} MTU Finder + Auto Set"
-        echo -e "${WHITE}  5)${NC} DNS Optimizer (Find & Set Fastest)"
-        echo -e "${WHITE}  6)${NC} Block/Unblock Server Ping"
-        echo -e "${WHITE}  7)${NC} ${BOLD}Complete Server Optimization${NC} ${CYAN}(Memory, TCP, Limits)${NC}"
-        echo -e "${WHITE}  0)${NC} ← Back to Main Menu"
-        
+        echo -e "${WHITE} 1)${NC} Install BBR (TCP Congestion Control)"
+        echo -e "${WHITE} 2)${NC} Install Hybla (TCP for High Latency)"
+        echo -e "${WHITE} 3)${NC} Remove TCP Optimization (BBR/Hybla)"
+        echo -e "${WHITE} 4)${NC} MTU Finder + Auto Set"
+        echo -e "${WHITE} 5)${NC} DNS Optimizer (Find & Set Fastest)"
+        echo -e "${WHITE} 6)${NC} Block/Unblock Server Ping"
+        echo -e "${WHITE} 7)${NC} ${BOLD}Complete Server Optimization${NC} ${CYAN}(Memory, TCP, Limits)${NC}"
+        echo -e "${WHITE} 0)${NC} ← Back to Main Menu"
         echo ""
         read -p "$(echo -e ${YELLOW}Select option:${NC} )" choice
         
@@ -1054,9 +1736,9 @@ optimize_mirrors() {
         
         if [ -n "$ping_time" ] && [ "$ping_time" -gt 0 ]; then
             mirror_times["$mirror"]="$ping_time"
-            echo -e "${GREEN}✓${NC} $mirror: ${CYAN}${ping_time}ms${NC}          "
+            echo -e "${GREEN}✓${NC} $mirror: ${CYAN}${ping_time}ms${NC}       "
         else
-            echo -e "${RED}✗${NC} $mirror: ${RED}Failed${NC}          "
+            echo -e "${RED}✗${NC} $mirror: ${RED}Failed${NC}       "
         fi
     done
     
@@ -1080,8 +1762,8 @@ optimize_mirrors() {
     
     echo ""
     print_status "OK" "Fastest mirror: $BEST (${BEST_TIME}ms)"
-    
     echo ""
+    
     read -p "$(echo -e ${YELLOW}Apply this mirror? [y/N]:${NC} )" apply_mirror
     
     if [[ $apply_mirror =~ ^[Yy]$ ]]; then
@@ -1103,7 +1785,6 @@ optimize_mirrors() {
         rm -rf /var/lib/apt/lists/* 2>/dev/null
         print_status "INFO" "Updating package lists..."
         apt-get update -qq > /dev/null 2>&1
-        
         print_status "OK" "Mirror updated successfully!"
     fi
     
@@ -1136,14 +1817,15 @@ main_menu() {
         show_system_info
         
         echo -e "${CYAN}${BOLD}═══════════════════════════════════════════════════════════${NC}"
-        echo -e "${CYAN}${BOLD}                      MAIN MENU                            ${NC}"
+        echo -e "${CYAN}${BOLD}                        MAIN MENU                          ${NC}"
         echo -e "${CYAN}${BOLD}═══════════════════════════════════════════════════════════${NC}\n"
         
-        echo -e "${WHITE}  1)${NC} 🌐 Network & Server Optimization"
-        echo -e "${WHITE}  2)${NC} 🔍 Check IP Reputation & Security"
-        echo -e "${WHITE}  3)${NC} 📊 System Benchmark"
-        echo -e "${WHITE}  4)${NC} 🔄 Optimize Repository Mirrors"
-        echo -e "${WHITE}  0)${NC} ❌ Exit"
+        echo -e "${WHITE} 1)${NC} 🌐 Network & Server Optimization"
+        echo -e "${WHITE} 2)${NC} 🔍 Check IP Reputation & Security"
+        echo -e "${WHITE} 3)${NC} 📊 System Benchmark"
+        echo -e "${WHITE} 4)${NC} 🔄 Optimize Repository Mirrors"
+        echo -e "${WHITE} 5)${NC} 🔧 Service & Log Management ${CYAN}${BOLD}[NEW]${NC}"
+        echo -e "${WHITE} 0)${NC} ❌ Exit"
         
         echo -e "\n${CYAN}${BOLD}═══════════════════════════════════════════════════════════${NC}\n"
         
@@ -1154,7 +1836,8 @@ main_menu() {
             2) check_ip_reputation ;;
             3) run_benchmark ;;
             4) optimize_mirrors ;;
-            0) 
+            5) service_log_menu ;;
+            0)
                 echo -e "\n${GREEN}Thank you for using Server Management Tool!${NC}\n"
                 exit 0
                 ;;
