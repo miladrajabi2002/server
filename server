@@ -2133,10 +2133,10 @@ main_menu() {
         
         echo -e "${WHITE} 1)${NC} 🌐 Network & Server Optimization"
         echo -e "${WHITE} 2)${NC} 🔍 Check IP Reputation & Security"
-        echo -e "${WHITE} 3)${NC} 📊 System Benchmark"
-        echo -e "${WHITE} 4)${NC} 🔄 Optimize Repository Mirrors"
-        echo -e "${WHITE} 5)${NC} 🔧 Service & Log Management ${CYAN}${BOLD}[NEW]${NC}"
-        echo -e "${WHITE} 6)${NC} 📊 Server Monitoring ${GREEN}${BOLD}[LIVE]${NC}"
+        echo -e "${WHITE} 3)${NC} 🔄 Optimize Repository Mirrors"
+        echo -e "${WHITE} 4)${NC} 📊 Server Monitoring ${GREEN}${BOLD}[LIVE]${NC}"
+        echo -e "${WHITE} 5)${NC} 📊 System Benchmark"
+        echo -e "${WHITE} 6)${NC} 🔧 Service & Log Management ${CYAN}${BOLD}[NEW]${NC}"
         echo -e "${WHITE} 0)${NC} ❌ Exit"
         
         echo -e "\n${CYAN}${BOLD}═══════════════════════════════════════════════════════════${NC}\n"
@@ -2147,10 +2147,10 @@ main_menu() {
         case $choice in
             1) network_optimization_menu ;;
             2) check_ip_reputation ;;
-            3) run_benchmark ;;
-            4) optimize_mirrors ;;
-            5) service_log_menu ;;
-            6) monitoring ;;
+            3) optimize_mirrors ;;
+            4) monitoring ;;
+            5) run_benchmark ;;
+            6) service_log_menu ;;
             0)
                 echo -e "\n${GREEN}Thank you for using Server Management Tool!${NC}\n"
                 exit 0
