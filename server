@@ -652,6 +652,7 @@ check_ip_reputation() {
     print_header "IP REPUTATION & SECURITY CHECK"
     
     # Get public IP
+    echo -ne "${CYAN}Getting your public IP...${NC}\r"
     PUBLIC_IP=$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null || echo "N/A")
     
     if [ "$PUBLIC_IP" = "N/A" ]; then
@@ -660,70 +661,272 @@ check_ip_reputation() {
         return
     fi
     
-    echo -e "${CYAN}Your Public IP: ${YELLOW}$PUBLIC_IP${NC}\n"
+    echo -e "${GREEN}✓${NC} Your Public IP: ${YELLOW}${BOLD}$PUBLIC_IP${NC}               \n"
     
-    echo -e "${YELLOW}To check your IP reputation and DNS leaks, visit these sites:${NC}\n"
+    local total_checks=0
+    local passed_checks=0
+    local critical_issues=0
     
-    echo -e "${GREEN}1. BrowserLeaks IP:${NC}"
-    echo -e "   ${BLUE}https://browserleaks.com/ip${NC}"
-    echo -e "   Check IP, location, and basic info\n"
+    echo -e "${CYAN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
     
-    echo -e "${GREEN}2. BrowserLeaks JavaScript:${NC}"
-    echo -e "   ${BLUE}https://browserleaks.com/javascript${NC}"
-    echo -e "   Advanced IP and browser fingerprinting\n"
+    # 1. IP-API - Basic Info
+    echo -e "${BOLD}[1/8] IP Geolocation & ISP${NC}"
+    echo -ne "${GRAY}Checking...${NC}\r"
     
-    echo -e "${GREEN}3. DNS Leak Test:${NC}"
-    echo -e "   ${BLUE}https://dnsleaktest.org/dns-leak-test${NC}"
-    echo -e "   Check if DNS is leaking\n"
+    ip_info=$(curl -s --max-time 5 "http://ip-api.com/json/$PUBLIC_IP?fields=status,country,city,isp,org,proxy,hosting" 2>/dev/null)
     
-    echo -e "${GREEN}4. Scamalytics:${NC}"
-    echo -e "   ${BLUE}https://scamalytics.com/ip/$PUBLIC_IP${NC}"
-    echo -e "   Check IP fraud score\n"
-    
-    echo -e "${GREEN}5. Whoer:${NC}"
-    echo -e "   ${BLUE}https://whoer.net/${NC}"
-    echo -e "   Complete IP analysis and anonymity check\n"
-    
-    echo -e "${CYAN}${BOLD}Quick API Checks:${NC}\n"
-    
-    # Quick check with ipapi
-    echo -ne "${GRAY}Checking IP information...${NC}\r"
-    ip_info=$(curl -s "http://ip-api.com/json/$PUBLIC_IP" 2>/dev/null)
-    
-    if [ -n "$ip_info" ]; then
+    if [ -n "$ip_info" ] && echo "$ip_info" | grep -q "success"; then
         country=$(echo "$ip_info" | grep -o '"country":"[^"]*' | cut -d'"' -f4)
         city=$(echo "$ip_info" | grep -o '"city":"[^"]*' | cut -d'"' -f4)
         isp=$(echo "$ip_info" | grep -o '"isp":"[^"]*' | cut -d'"' -f4)
+        is_proxy=$(echo "$ip_info" | grep -o '"proxy":true' | wc -l)
+        is_hosting=$(echo "$ip_info" | grep -o '"hosting":true' | wc -l)
         
-        echo -e "${GREEN}✓${NC} Location: $city, $country"
-        echo -e "${GREEN}✓${NC} ISP: $isp"
+        echo -e "${GREEN}✓${NC} Location: ${CYAN}$city, $country${NC}                    "
+        echo -e "${GREEN}✓${NC} ISP: ${CYAN}${isp:0:50}${NC}"
+        
+        total_checks=$((total_checks + 1))
+        if [ $is_proxy -eq 0 ]; then
+            passed_checks=$((passed_checks + 1))
+            echo -e "${GREEN}✓${NC} Proxy: ${GREEN}Not detected${NC}"
+        else
+            echo -e "${RED}✗${NC} Proxy: ${RED}Detected${NC}"
+            critical_issues=$((critical_issues + 1))
+        fi
+        
+        [ $is_hosting -eq 1 ] && echo -e "${YELLOW}⚠${NC} Type: ${YELLOW}Hosting/VPS/Datacenter${NC}" || echo -e "${GREEN}✓${NC} Type: ${GREEN}Residential${NC}"
     else
-        echo -e "${YELLOW}⚠${NC} Could not fetch IP info"
+        echo -e "${RED}✗${NC} Check failed                        "
     fi
+    echo ""
     
-    # Check blacklist
-    echo -ne "${GRAY}Checking DNS blacklists...${NC}\r"
-    local blacklisted=0
-    local reversed_ip=$(echo "$PUBLIC_IP" | awk -F. '{print $4"."$3"."$2"."$1}')
+    # 2. IPQualityScore
+    echo -e "${BOLD}[2/8] IPQualityScore - Fraud Detection${NC}"
+    echo -ne "${GRAY}Checking...${NC}\r"
     
-    for rbl in "zen.spamhaus.org" "bl.spamcop.net"; do
+    ipqs=$(curl -s --max-time 5 "https://www.ipqualityscore.com/api/json/ip/free/$PUBLIC_IP" 2>/dev/null)
+    
+    if [ -n "$ipqs" ]; then
+        fraud=$(echo "$ipqs" | grep -o '"fraud_score":[0-9]*' | cut -d':' -f2)
+        vpn=$(echo "$ipqs" | grep -o '"vpn":true' | wc -l)
+        proxy=$(echo "$ipqs" | grep -o '"proxy":true' | wc -l)
+        tor=$(echo "$ipqs" | grep -o '"tor":true' | wc -l)
+        
+        total_checks=$((total_checks + 1))
+        
+        if [ -n "$fraud" ]; then
+            if [ "$fraud" -lt 50 ]; then
+                passed_checks=$((passed_checks + 1))
+                echo -e "${GREEN}✓${NC} Fraud Score: ${GREEN}$fraud/100${NC} (Low)           "
+            elif [ "$fraud" -lt 75 ]; then
+                echo -e "${YELLOW}⚠${NC} Fraud Score: ${YELLOW}$fraud/100${NC} (Medium)"
+            else
+                echo -e "${RED}✗${NC} Fraud Score: ${RED}$fraud/100${NC} (High)"
+                critical_issues=$((critical_issues + 1))
+            fi
+        fi
+        
+        [ $vpn -eq 0 ] && echo -e "${GREEN}✓${NC} VPN: ${GREEN}Not detected${NC}" || echo -e "${RED}✗${NC} VPN: ${RED}Detected${NC}"
+        [ $proxy -eq 0 ] && echo -e "${GREEN}✓${NC} Proxy: ${GREEN}Not detected${NC}" || echo -e "${RED}✗${NC} Proxy: ${RED}Detected${NC}"
+        [ $tor -eq 0 ] && echo -e "${GREEN}✓${NC} Tor: ${GREEN}Not detected${NC}" || echo -e "${RED}✗${NC} Tor: ${RED}Detected${NC}"
+    else
+        echo -e "${RED}✗${NC} Check failed                    "
+    fi
+    echo ""
+    
+    # 3. Shodan
+    echo -e "${BOLD}[3/8] Shodan - Port Scanner${NC}"
+    echo -ne "${GRAY}Checking...${NC}\r"
+    
+    shodan=$(curl -s --max-time 5 "https://internetdb.shodan.io/$PUBLIC_IP" 2>/dev/null)
+    
+    if [ -n "$shodan" ] && ! echo "$shodan" | grep -q "No information"; then
+        ports=$(echo "$shodan" | grep -o '"ports":\[[^]]*\]' | grep -o '[0-9]*' | tr '\n' ',' | sed 's/,$//')
+        vulns=$(echo "$shodan" | grep -o '"vulns":\[[^]]*\]' | grep -o 'CVE-[0-9-]*' | wc -l)
+        
+        [ -n "$ports" ] && echo -e "${YELLOW}⚠${NC} Ports: ${YELLOW}$ports${NC}        " || echo -e "${GREEN}✓${NC} No common ports detected              "
+        
+        if [ "$vulns" -gt 0 ]; then
+            echo -e "${RED}✗${NC} Vulnerabilities: ${RED}$vulns CVEs${NC}"
+            critical_issues=$((critical_issues + 1))
+        else
+            echo -e "${GREEN}✓${NC} No known vulnerabilities                        "
+        fi
+    else
+        echo -e "${GREEN}✓${NC} No data (not heavily scanned)      "
+    fi
+    echo ""
+    
+    # 4. DNS Blacklists
+    echo -e "${BOLD}[4/8] DNS Blacklists${NC}"
+    echo -ne "${GRAY}Checking...${NC}\r"
+    
+    reversed_ip=$(echo "$PUBLIC_IP" | awk -F. '{print $4"."$3"."$2"."$1}')
+    blacklisted=0
+    bl_names=""
+    
+    for rbl in "zen.spamhaus.org" "bl.spamcop.net" "dnsbl.sorbs.net" "b.barracudacentral.org" "bl.spameatingmonkey.net" "dnsbl-1.uceprotect.net"; do
         if host "${reversed_ip}.${rbl}" &>/dev/null; then
-            blacklisted=1
-            break
+            blacklisted=$((blacklisted + 1))
+            bl_names="$bl_names$rbl "
         fi
     done
     
+    total_checks=$((total_checks + 1))
+    
     if [ $blacklisted -eq 0 ]; then
-        echo -e "${GREEN}✓${NC} IP not found in major blacklists         "
+        passed_checks=$((passed_checks + 1))
+        echo -e "${GREEN}✓${NC} Clean (0/6 lists)${NC}            "
     else
-        echo -e "${RED}✗${NC} IP found in blacklists! (May be dirty)    "
+        echo -e "${RED}✗${NC} Listed in $blacklisted/6 lists${NC}"
+        echo -e "   ${RED}$bl_names${NC}"
+        critical_issues=$((critical_issues + 1))
+    fi
+    echo ""
+    
+    # 5. IPHub
+    echo -e "${BOLD}[5/8] IPHub - Proxy Detection${NC}"
+    echo -ne "${GRAY}Checking...${NC}\r"
+    
+    iphub=$(curl -s --max-time 5 "http://v2.api.iphub.info/ip/$PUBLIC_IP" 2>/dev/null)
+    
+    if [ -n "$iphub" ]; then
+        block=$(echo "$iphub" | grep -o '"block":[0-2]' | cut -d':' -f2)
+        total_checks=$((total_checks + 1))
+        
+        case "$block" in
+            0) passed_checks=$((passed_checks + 1)); echo -e "${GREEN}✓${NC} Residential/Business IP                  " ;;
+            1) echo -e "${RED}✗${NC} Proxy/VPN detected${NC}"; critical_issues=$((critical_issues + 1)) ;;
+            2) echo -e "${YELLOW}⚠${NC} Hosting/Datacenter${NC}" ;;
+            *) total_checks=$((total_checks - 1)); echo -e "${YELLOW}⚠${NC} Unknown${NC}" ;;
+        esac
+    else
+        echo -e "${YELLOW}⚠${NC} Check unavailable                         "
+    fi
+    echo ""
+    
+    # 6. Scamalytics
+    echo -e "${BOLD}[6/8] Scamalytics - Fraud${NC}"
+    echo -ne "${GRAY}Checking...${NC}\r"
+    
+    scam=$(curl -s --max-time 5 "https://scamalytics.com/ip/$PUBLIC_IP" 2>/dev/null)
+    
+    if [ -n "$scam" ]; then
+        fraud_scam=$(echo "$scam" | grep -o 'Fraud Score: [0-9]*' | grep -o '[0-9]*' | head -1)
+        total_checks=$((total_checks + 1))
+        
+        if [ -n "$fraud_scam" ]; then
+            if [ "$fraud_scam" -lt 25 ]; then
+                passed_checks=$((passed_checks + 1))
+                echo -e "${GREEN}✓${NC} Score: ${GREEN}$fraud_scam/100${NC} (Very Low)       "
+            elif [ "$fraud_scam" -lt 75 ]; then
+                echo -e "${YELLOW}⚠${NC} Score: ${YELLOW}$fraud_scam/100${NC}"
+            else
+                echo -e "${RED}✗${NC} Score: ${RED}$fraud_scam/100${NC} (High)"
+                critical_issues=$((critical_issues + 1))
+            fi
+        else
+            total_checks=$((total_checks - 1))
+            echo -e "${YELLOW}⚠${NC} Could not parse              "
+        fi
+    else
+        echo -e "${YELLOW}⚠${NC} Check failed                         "
+    fi
+    echo ""
+    
+    # 7. GetIPIntel
+    echo -e "${BOLD}[7/8] GetIPIntel - Proxy Probability${NC}"
+    echo -ne "${GRAY}Checking...${NC}\r"
+    
+    getip=$(curl -s --max-time 5 "http://check.getipintel.net/check.php?ip=$PUBLIC_IP&contact=admin@server.local&flags=b" 2>/dev/null)
+    
+    if [ -n "$getip" ] && [ "$getip" != "-1" ] && [ "$getip" != "-2" ]; then
+        prob=$(echo "$getip" | awk '{printf "%.0f", $1 * 100}')
+        total_checks=$((total_checks + 1))
+        
+        if [ "$prob" -lt 50 ]; then
+            passed_checks=$((passed_checks + 1))
+            echo -e "${GREEN}✓${NC} Probability: ${GREEN}${prob}%${NC} (Low)              "
+        elif [ "$prob" -lt 75 ]; then
+            echo -e "${YELLOW}⚠${NC} Probability: ${YELLOW}${prob}%${NC}"
+        else
+            echo -e "${RED}✗${NC} Probability: ${RED}${prob}%${NC} (High)"
+            critical_issues=$((critical_issues + 1))
+        fi
+    else
+        echo -e "${YELLOW}⚠${NC} Check unavailable                     "
+    fi
+    echo ""
+    
+    # 8. AbuseIPDB
+    echo -e "${BOLD}[8/8] AbuseIPDB${NC}"
+    echo -ne "${GRAY}Checking...${NC}\r"
+    
+    abuse_page=$(curl -s --max-time 5 "https://www.abuseipdb.com/check/$PUBLIC_IP" 2>/dev/null)
+    
+    total_checks=$((total_checks + 1))
+    if echo "$abuse_page" | grep -qi "whitelisted\|not found\|clean\|0 reports"; then
+        passed_checks=$((passed_checks + 1))
+        echo -e "${GREEN}✓${NC} No abuse reports${NC}              "
+    elif echo "$abuse_page" | grep -qi "reported\|blacklist"; then
+        echo -e "${RED}✗${NC} Abuse reports found${NC}"
+        critical_issues=$((critical_issues + 1))
+    else
+        echo -e "${YELLOW}⚠${NC} Could not verify${NC}"
+        total_checks=$((total_checks - 1))
+    fi
+    echo ""
+    
+    # Final Score
+    echo -e "${CYAN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
+    
+    [ $total_checks -eq 0 ] && total_checks=1
+    score=$((passed_checks * 100 / total_checks))
+    
+    echo -e "${BOLD}FINAL REPUTATION SCORE:${NC}\n"
+    
+    # Progress bar
+    filled=$((score / 2))
+    empty=$((50 - filled))
+    
+    if [ $score -ge 80 ]; then
+        color="${GREEN}"
+        status="CLEAN IP ✓"
+    elif [ $score -ge 60 ]; then
+        color="${YELLOW}"
+        status="MODERATE"
+    else
+        color="${RED}"
+        status="DIRTY IP ✗"
+    fi
+    
+    echo -ne "${color}"
+    printf '█%.0s' $(seq 1 $filled)
+    echo -ne "${GRAY}"
+    printf '░%.0s' $(seq 1 $empty)
+    echo -e "${NC} ${BOLD}${score}%${NC}"
+    
+    echo ""
+    echo -e "${BOLD}Status: ${color}$status${NC}"
+    echo -e "Passed: ${GREEN}$passed_checks${NC}/${CYAN}$total_checks${NC}"
+    [ $critical_issues -gt 0 ] && echo -e "Critical: ${RED}$critical_issues${NC}"
+    
+    echo ""
+    
+    if [ $score -lt 80 ]; then
+        echo -e "${YELLOW}${BOLD}RECOMMENDATIONS:${NC}"
+        [ $critical_issues -gt 0 ] && echo -e "${RED}⚠${NC} Consider getting a new IP"
+        echo -e "${CYAN}Detailed check:${NC}"
+        echo -e "• ${BLUE}https://scamalytics.com/ip/$PUBLIC_IP${NC}"
+        echo -e "• ${BLUE}https://www.abuseipdb.com/check/$PUBLIC_IP${NC}"
     fi
     
     echo ""
-    echo -e "${YELLOW}For complete analysis, please visit the websites above${NC}"
+    echo -e "${CYAN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     
     press_enter
 }
+
 
 network_optimization_menu() {
     while true; do
