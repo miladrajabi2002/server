@@ -1762,130 +1762,121 @@ service_log_menu() {
                     print_status "INFO" "Starting log cleanup..."
                     echo ""
                     
-                    local total_steps=10
+                    local total_steps=11
                     local current_step=0
                     
-                    # Step 1: Clear Nginx logs
-                    current_step=$((current_step + 1))
-                    show_progress $current_step $total_steps
-                    echo -ne " Clearing Nginx logs...          "
-                    if [ -f /var/log/nginx/error.log ]; then
-                        > /var/log/nginx/error.log
-                        > /var/log/nginx/access.log 2>/dev/null
-                        echo -e "\r$(show_progress $current_step $total_steps) ${GREEN}✓${NC} Nginx logs cleared           "
-                    else
-                        echo -e "\r$(show_progress $current_step $total_steps) ${GRAY}○${NC} Nginx logs not found        "
-                    fi
-                    sleep 0.3
-                    
-                    # Step 2: Clear Apache logs
-                    current_step=$((current_step + 1))
-                    show_progress $current_step $total_steps
-                    echo -ne " Clearing Apache logs...         "
-                    if [ -f /var/log/apache2/error.log ] || [ -f /var/log/httpd/error_log ]; then
-                        > /var/log/apache2/error.log 2>/dev/null
-                        > /var/log/apache2/access.log 2>/dev/null
-                        > /var/log/httpd/error_log 2>/dev/null
-                        > /var/log/httpd/access_log 2>/dev/null
-                        echo -e "\r$(show_progress $current_step $total_steps) ${GREEN}✓${NC} Apache logs cleared          "
-                    else
-                        echo -e "\r$(show_progress $current_step $total_steps) ${GRAY}○${NC} Apache logs not found       "
-                    fi
-                    sleep 0.3
-                    
-                    # Step 3: Clear PHP-FPM logs
-                    current_step=$((current_step + 1))
-                    show_progress $current_step $total_steps
-                    echo -ne " Clearing PHP-FPM logs...        "
-                    local php_cleared=0
-                    for ver in 8.4 8.3 8.2 8.1 8.0 7.4; do
-                        if [ -f "/var/log/php${ver}-fpm.log" ]; then
-                            > "/var/log/php${ver}-fpm.log"
-                            php_cleared=1
-                        fi
-                    done
-                    if [ $php_cleared -eq 1 ]; then
-                        echo -e "\r$(show_progress $current_step $total_steps) ${GREEN}✓${NC} PHP-FPM logs cleared        "
-                    else
-                        echo -e "\r$(show_progress $current_step $total_steps) ${GRAY}○${NC} PHP-FPM logs not found      "
-                    fi
-                    sleep 0.3
-                    
-                    # Step 4: Clear MySQL/MariaDB logs
-                    current_step=$((current_step + 1))
-                    show_progress $current_step $total_steps
-                    echo -ne " Clearing MySQL logs...          "
-                    if [ -f /var/log/mysql/error.log ]; then
-                        > /var/log/mysql/error.log
-                        echo -e "\r$(show_progress $current_step $total_steps) ${GREEN}✓${NC} MySQL logs cleared          "
-                    else
-                        echo -e "\r$(show_progress $current_step $total_steps) ${GRAY}○${NC} MySQL logs not found        "
-                    fi
-                    sleep 0.3
-                    
-                    # Step 5: Clear Redis logs
-                    current_step=$((current_step + 1))
-                    show_progress $current_step $total_steps
-                    echo -ne " Clearing Redis logs...          "
-                    if [ -f /var/log/redis/redis-server.log ]; then
-                        > /var/log/redis/redis-server.log
-                        echo -e "\r$(show_progress $current_step $total_steps) ${GREEN}✓${NC} Redis logs cleared          "
-                    else
-                        echo -e "\r$(show_progress $current_step $total_steps) ${GRAY}○${NC} Redis logs not found        "
-                    fi
-                    sleep 0.3
-                    
-                    # Step 6: Rotate systemd journal
+                    # Step 1: Rotate journal first
                     current_step=$((current_step + 1))
                     show_progress $current_step $total_steps
                     echo -ne " Rotating journal...             "
                     journalctl --rotate 2>/dev/null
                     echo -e "\r$(show_progress $current_step $total_steps) ${GREEN}✓${NC} Journal rotated             "
-                    sleep 0.3
+                    sleep 0.2
                     
-                    # Step 7: Clear Nginx journal
+                    # Step 2: Clear Nginx journal
                     current_step=$((current_step + 1))
                     show_progress $current_step $total_steps
                     echo -ne " Clearing Nginx journal...       "
-                    journalctl --vacuum-time=1s -u nginx 2>/dev/null
+                    journalctl --vacuum-time=1s -u nginx >/dev/null 2>&1
                     echo -e "\r$(show_progress $current_step $total_steps) ${GREEN}✓${NC} Nginx journal cleared       "
-                    sleep 0.3
+                    sleep 0.2
                     
-                    # Step 8: Clear PHP-FPM journal
+                    # Step 3: Clear Nginx log files
+                    current_step=$((current_step + 1))
+                    show_progress $current_step $total_steps
+                    echo -ne " Clearing Nginx log files...    "
+                    if [ -f /var/log/nginx/error.log ]; then
+                        > /var/log/nginx/error.log
+                        > /var/log/nginx/access.log 2>/dev/null
+                        echo -e "\r$(show_progress $current_step $total_steps) ${GREEN}✓${NC} Nginx log files cleared    "
+                    else
+                        echo -e "\r$(show_progress $current_step $total_steps) ${GRAY}○${NC} Nginx logs not found       "
+                    fi
+                    sleep 0.2
+                    
+                    # Step 4: Clear Apache journal
+                    current_step=$((current_step + 1))
+                    show_progress $current_step $total_steps
+                    echo -ne " Clearing Apache journal...      "
+                    journalctl --vacuum-time=1s -u apache2 >/dev/null 2>&1
+                    journalctl --vacuum-time=1s -u httpd >/dev/null 2>&1
+                    echo -e "\r$(show_progress $current_step $total_steps) ${GREEN}✓${NC} Apache journal cleared      "
+                    sleep 0.2
+                    
+                    # Step 5: Clear Apache log files
+                    current_step=$((current_step + 1))
+                    show_progress $current_step $total_steps
+                    echo -ne " Clearing Apache log files...   "
+                    > /var/log/apache2/error.log 2>/dev/null
+                    > /var/log/apache2/access.log 2>/dev/null
+                    > /var/log/httpd/error_log 2>/dev/null
+                    > /var/log/httpd/access_log 2>/dev/null
+                    echo -e "\r$(show_progress $current_step $total_steps) ${GREEN}✓${NC} Apache log files cleared   "
+                    sleep 0.2
+                    
+                    # Step 6: Clear PHP-FPM journal
                     current_step=$((current_step + 1))
                     show_progress $current_step $total_steps
                     echo -ne " Clearing PHP-FPM journal...     "
-                    for ver in 8.4 8.3 8.2 8.1 8.0 7.4; do
-                        journalctl --vacuum-time=1s -u "php${ver}-fpm" 2>/dev/null
+                    for ver in 8.4 8.3 8.2 8.1 8.0 7.4 7.3; do
+                        journalctl --vacuum-time=1s -u "php${ver}-fpm" >/dev/null 2>&1
                     done
                     echo -e "\r$(show_progress $current_step $total_steps) ${GREEN}✓${NC} PHP-FPM journal cleared     "
-                    sleep 0.3
+                    sleep 0.2
                     
-                    # Step 9: Clear database journal
+                    # Step 7: Clear PHP-FPM log files
+                    current_step=$((current_step + 1))
+                    show_progress $current_step $total_steps
+                    echo -ne " Clearing PHP-FPM log files...  "
+                    for ver in 8.4 8.3 8.2 8.1 8.0 7.4; do
+                        > "/var/log/php${ver}-fpm.log" 2>/dev/null
+                    done
+                    echo -e "\r$(show_progress $current_step $total_steps) ${GREEN}✓${NC} PHP-FPM log files cleared  "
+                    sleep 0.2
+                    
+                    # Step 8: Clear MySQL/MariaDB journal
                     current_step=$((current_step + 1))
                     show_progress $current_step $total_steps
                     echo -ne " Clearing database journal...    "
-                    journalctl --vacuum-time=1s -u mysql 2>/dev/null
-                    journalctl --vacuum-time=1s -u mariadb 2>/dev/null
+                    journalctl --vacuum-time=1s -u mysql >/dev/null 2>&1
+                    journalctl --vacuum-time=1s -u mariadb >/dev/null 2>&1
                     echo -e "\r$(show_progress $current_step $total_steps) ${GREEN}✓${NC} Database journal cleared    "
-                    sleep 0.3
+                    sleep 0.2
+                    
+                    # Step 9: Clear MySQL/MariaDB log files
+                    current_step=$((current_step + 1))
+                    show_progress $current_step $total_steps
+                    echo -ne " Clearing database log files... "
+                    > /var/log/mysql/error.log 2>/dev/null
+                    > /var/log/mariadb/error.log 2>/dev/null
+                    echo -e "\r$(show_progress $current_step $total_steps) ${GREEN}✓${NC} Database log files cleared "
+                    sleep 0.2
                     
                     # Step 10: Clear Redis journal
                     current_step=$((current_step + 1))
                     show_progress $current_step $total_steps
                     echo -ne " Clearing Redis journal...       "
-                    journalctl --vacuum-time=1s -u redis 2>/dev/null
-                    journalctl --vacuum-time=1s -u redis-server 2>/dev/null
+                    journalctl --vacuum-time=1s -u redis >/dev/null 2>&1
+                    journalctl --vacuum-time=1s -u redis-server >/dev/null 2>&1
                     echo -e "\r$(show_progress $current_step $total_steps) ${GREEN}✓${NC} Redis journal cleared       "
-                    sleep 0.3
+                    sleep 0.2
                     
-                    # Final cleanup
+                    # Step 11: Clear Redis log files
+                    current_step=$((current_step + 1))
+                    show_progress $current_step $total_steps
+                    echo -ne " Clearing Redis log files...     "
+                    > /var/log/redis/redis-server.log 2>/dev/null
+                    echo -e "\r$(show_progress $current_step $total_steps) ${GREEN}✓${NC} Redis log files cleared     "
+                    sleep 0.2
+                    
+                    # Final status
                     echo ""
                     show_progress $total_steps $total_steps
                     echo -e " ${GREEN}${BOLD}Complete!${NC}"
                     echo ""
                     
-                    print_status "OK" "All logs cleared successfully!"
+                    print_status "OK" "All logs and journal entries cleared!"
+                    print_status "INFO" "Error counters will reset on next refresh"
                     echo ""
                     echo -e "${CYAN}Journal disk usage:${NC}"
                     journalctl --disk-usage
@@ -2083,7 +2074,7 @@ main_menu() {
         esac
     done
 }
- 
+
 #==============================================================================
 # Main Execution
 #==============================================================================
