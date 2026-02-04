@@ -399,7 +399,7 @@ mtu_finder() {
 optimize_dns() {
     print_header "DNS OPTIMIZER"
     
-    echo -e "${YELLOW}Testing multiple DNS servers to find the fastest...${NC}\n"
+    echo -e "${YELLOW}Testing DNS servers to find the fastest...${NC}\n"
     
     # DNS servers to test
     declare -A dns_servers=(
@@ -409,33 +409,76 @@ optimize_dns() {
         ["OpenDNS"]="208.67.222.222"
         ["Shecan"]="178.22.122.100"
         ["403"]="10.202.10.202"
+        ["Radar"]="10.202.10.10"
+        ["Electro"]="78.157.42.100"
     )
     
     declare -A dns_times
+    local total_dns=${#dns_servers[@]}
+    local current=0
+    
+    # Progress bar function
+    show_progress() {
+        local current=$1
+        local total=$2
+        local name=$3
+        local status=$4
+        
+        local percent=$((current * 100 / total))
+        local filled=$((current * 40 / total))
+        local empty=$((40 - filled))
+        
+        echo -ne "\r${CYAN}Progress: ["
+        printf "${GREEN}█%.0s" $(seq 1 $filled)
+        printf "${GRAY}░%.0s" $(seq 1 $empty)
+        echo -ne "${CYAN}] ${percent}%${NC} - ${status}"
+    }
+    
+    echo -e "${CYAN}Testing $total_dns DNS servers...${NC}\n"
     
     # Test each DNS
     for name in "${!dns_servers[@]}"; do
+        current=$((current + 1))
         ip="${dns_servers[$name]}"
-        echo -ne "${GRAY}Testing $name ($ip)...${NC}\r"
         
-        # Test with dig
+        show_progress $current $total_dns "$name" "Testing $name ($ip)..."
+        
+        # Test with timeout using dig
         if command -v dig &>/dev/null; then
-            response_time=$(dig @$ip google.com +stats 2>/dev/null | grep "Query time:" | awk '{print $4}')
-            if [ -n "$response_time" ]; then
-                dns_times["$name"]="$response_time"
-                echo -e "${GREEN}✓${NC} $name ($ip): ${CYAN}${response_time}ms${NC}          "
+            # Use timeout command if available
+            if command -v timeout &>/dev/null; then
+                response_time=$(timeout 3 dig @$ip google.com +time=2 +tries=1 2>/dev/null | grep "Query time:" | awk '{print $4}')
             else
-                echo -e "${RED}✗${NC} $name ($ip): ${RED}Failed${NC}          "
+                response_time=$(dig @$ip google.com +time=2 +tries=1 2>/dev/null | grep "Query time:" | awk '{print $4}')
+            fi
+            
+            if [ -n "$response_time" ] && [ "$response_time" -gt 0 ] 2>/dev/null; then
+                dns_times["$name"]="$response_time"
             fi
         else
-            # Fallback to ping
-            ping_time=$(ping -c 3 -W 2 $ip 2>/dev/null | tail -1 | awk -F'/' '{print $5}' | cut -d'.' -f1)
-            if [ -n "$ping_time" ]; then
+            # Fallback to ping with timeout
+            ping_time=$(ping -c 2 -W 2 $ip 2>/dev/null | tail -1 | awk -F'/' '{print $5}' | cut -d'.' -f1)
+            if [ -n "$ping_time" ] && [ "$ping_time" -gt 0 ] 2>/dev/null; then
                 dns_times["$name"]="$ping_time"
-                echo -e "${GREEN}✓${NC} $name ($ip): ${CYAN}~${ping_time}ms${NC}          "
-            else
-                echo -e "${RED}✗${NC} $name ($ip): ${RED}Failed${NC}          "
             fi
+        fi
+        
+        sleep 0.1
+    done
+    
+    # Clear progress line
+    echo -ne "\r$(printf ' %.0s' {1..80})\r"
+    
+    echo -e "\n${CYAN}${BOLD}Test Results:${NC}\n"
+    
+    # Display results
+    for name in "${!dns_servers[@]}"; do
+        ip="${dns_servers[$name]}"
+        if [ -n "${dns_times[$name]}" ]; then
+            time="${dns_times[$name]}"
+            echo -e "${GREEN}✓${NC} ${BOLD}$name${NC} ($ip): ${CYAN}${time}ms${NC}"
+        else
+            echo -e "${RED}✗${NC} ${BOLD}$name${NC} ($ip): ${RED}Timeout/Failed${NC}"
         fi
     done
     
@@ -452,6 +495,7 @@ optimize_dns() {
     done
     
     if [ -z "$fastest_dns" ]; then
+        echo ""
         print_status "FAIL" "No DNS servers responded"
         press_enter
         return
@@ -460,7 +504,9 @@ optimize_dns() {
     fastest_ip="${dns_servers[$fastest_dns]}"
     
     echo ""
-    print_status "OK" "Fastest DNS: $fastest_dns ($fastest_ip) - ${fastest_time}ms"
+    echo -e "${GREEN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${GREEN}🏆 FASTEST DNS: ${YELLOW}${BOLD}$fastest_dns${NC} ${GREEN}($fastest_ip)${NC} - ${CYAN}${BOLD}${fastest_time}ms${NC}"
+    echo -e "${GREEN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     
     echo ""
     read -p "$(echo -e ${YELLOW}Apply this DNS? [y/N]:${NC} )" apply_dns
@@ -469,25 +515,38 @@ optimize_dns() {
         # Backup resolv.conf
         backup_file "/etc/resolv.conf"
         
+        # Remove immutable flag if set
+        chattr -i /etc/resolv.conf 2>/dev/null || true
+        
         # Set DNS
         cat > /etc/resolv.conf << EOF
+# DNS Configuration - Set by Server Tool
+# Fastest: $fastest_dns ($fastest_ip) - ${fastest_time}ms
 nameserver $fastest_ip
 nameserver 8.8.8.8
+nameserver 1.1.1.1
 EOF
         
         # Make immutable (prevent changes)
         chattr +i /etc/resolv.conf 2>/dev/null || true
         
         print_status "OK" "DNS set to $fastest_dns ($fastest_ip)"
+        print_status "INFO" "Configuration saved and protected"
         print_status "INFO" "DNS will persist after reboot"
+        
+        # Test new DNS
+        echo ""
+        echo -e "${CYAN}Testing new DNS configuration...${NC}"
+        if nslookup google.com &>/dev/null; then
+            print_status "OK" "DNS is working correctly"
+        else
+            print_status "WARN" "DNS test failed, but configuration saved"
+        fi
     fi
     
     press_enter
 }
 
-#==============================================================================
-# Block/Unblock ICMP (Ping)
-#==============================================================================
 
 manage_ping() {
     print_header "BLOCK/UNBLOCK SERVER PING"
