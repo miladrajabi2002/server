@@ -520,7 +520,7 @@ optimize_dns() {
     echo ""
     echo -e "${CYAN}${BOLD}═══════════════════════════════════════════════════════════${NC}\n"
     
-    read -p "$(echo -e ${YELLOW}Apply fastest DNS ($fastest_dns)? [y/N]:${NC} )" apply_dns
+    read -p "$(echo -e "${YELLOW}Apply fastest DNS ($fastest_dns)? [y/N]:${NC}")" apply_dns
     
     if [[ $apply_dns =~ ^[Yy]$ ]]; then
         # Backup resolv.conf
