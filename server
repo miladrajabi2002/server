@@ -703,6 +703,24 @@ EOF
 }
 
 #==============================================================================
+# Server Monitoring
+#==============================================================================
+
+monitoring() {
+   
+   print_header "Server Monitoring"
+    
+   echo -e "${YELLOW}Running comprehensive benchmark...${NC}\n"
+   echo -e "${CYAN}This may take a few minutes${NC}\n"
+    
+   apt install btop -y
+   btop
+    
+   press_enter
+}
+
+
+#==============================================================================
 # IP Reputation & Security Check
 #==============================================================================
 
@@ -2118,6 +2136,7 @@ main_menu() {
         echo -e "${WHITE} 3)${NC} 📊 System Benchmark"
         echo -e "${WHITE} 4)${NC} 🔄 Optimize Repository Mirrors"
         echo -e "${WHITE} 5)${NC} 🔧 Service & Log Management ${CYAN}${BOLD}[NEW]${NC}"
+        echo -e "${WHITE} 6)${NC} 📊 Server Monitoring ${GREEN}${BOLD}[LIVE]${NC}"
         echo -e "${WHITE} 0)${NC} ❌ Exit"
         
         echo -e "\n${CYAN}${BOLD}═══════════════════════════════════════════════════════════${NC}\n"
@@ -2131,6 +2150,7 @@ main_menu() {
             3) run_benchmark ;;
             4) optimize_mirrors ;;
             5) service_log_menu ;;
+            6) monitoring ;;
             0)
                 echo -e "\n${GREEN}Thank you for using Server Management Tool!${NC}\n"
                 exit 0
