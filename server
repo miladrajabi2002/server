@@ -1983,9 +1983,39 @@ optimize_mirrors() {
     backup_file "/etc/apt/sources.list"
     [ -f "/etc/apt/sources.list.d/ubuntu.sources" ] && backup_file "/etc/apt/sources.list.d/ubuntu.sources"
     
-    # Iran mirrors
-    MIRRORS="mirror.iranserver.com ir.ubuntu.sindad.cloud mirror.arvancloud.ir archive.ubuntu.petiak.ir ubuntu.hostiran.ir mirrors.pardisco.co ubuntu.pars.host mirror.0-1.cloud ubuntu.shatel.ir mirror.faraso.org repo.linuxmirrors.ir"
+    MIRRORS="
+    mirror.iranserver.com
+    ir.ubuntu.sindad.cloud
+    mirror.arvancloud.ir
+    archive.ubuntu.petiak.ir
+    ubuntu.hostiran.ir
+    mirrors.pardisco.co
+    ubuntu.pars.host
+    mirror.0-1.cloud
+    ubuntu.shatel.ir
+    mirror.faraso.org
+    repo.linuxmirrors.ir
     
+    archive.ubuntu.com
+    security.ubuntu.com
+    mirrors.edge.kernel.org
+    mirror.math.princeton.edu
+    mirror.csclub.uwaterloo.ca
+    ftp.fau.de
+    mirror.dogado.de
+    ftp.uni-stuttgart.de
+    ftp.tu-chemnitz.de
+    mirror.koddos.net
+    mirror.leaseweb.com
+    mirror.hetzner.de
+    mirror.hetzner.com
+    mirror.clarkson.edu
+    ubuntu.mirror.liquidtelecom.com
+    mirrors.digitalocean.com
+    mirror.akamai.com
+    "
+
+
     echo -e "${CYAN}Testing Iran mirrors...${NC}\n"
     
     declare -A mirror_times
