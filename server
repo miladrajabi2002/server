@@ -1618,22 +1618,31 @@ service_log_menu() {
         # Nginx
         check_service_status "nginx" "Nginx"
         if systemctl is-active --quiet nginx 2>/dev/null; then
-            local nginx_errors=$(journalctl -u nginx -p err -n 1 --since "1 hour ago" --no-pager 2>/dev/null | wc -l)
-            [ $nginx_errors -gt 0 ] && echo -e "  ${RED}⚠ $nginx_errors error(s) in last hour${NC}" && total_errors=$((total_errors + nginx_errors))
+            local nginx_errors=$(journalctl -u nginx -p err --since "1 hour ago" --no-pager 2>/dev/null | grep -c "^-- " || echo 0)
+            if [ "$nginx_errors" -gt 0 ]; then
+                echo -e "  ${RED}⚠ $nginx_errors error(s) in last hour${NC}"
+                total_errors=$((total_errors + nginx_errors))
+            fi
         fi
         
         # Apache
         if systemctl list-units --full -all | grep -Fq "apache2"; then
             check_service_status "apache2" "Apache"
             if systemctl is-active --quiet apache2 2>/dev/null; then
-                local apache_errors=$(journalctl -u apache2 -p err -n 1 --since "1 hour ago" --no-pager 2>/dev/null | wc -l)
-                [ $apache_errors -gt 0 ] && echo -e "  ${RED}⚠ $apache_errors error(s) in last hour${NC}" && total_errors=$((total_errors + apache_errors))
+                local apache_errors=$(journalctl -u apache2 -p err --since "1 hour ago" --no-pager 2>/dev/null | grep -c "^-- " || echo 0)
+                if [ "$apache_errors" -gt 0 ]; then
+                    echo -e "  ${RED}⚠ $apache_errors error(s) in last hour${NC}"
+                    total_errors=$((total_errors + apache_errors))
+                fi
             fi
         elif systemctl list-units --full -all | grep -Fq "httpd"; then
             check_service_status "httpd" "Apache"
             if systemctl is-active --quiet httpd 2>/dev/null; then
-                local httpd_errors=$(journalctl -u httpd -p err -n 1 --since "1 hour ago" --no-pager 2>/dev/null | wc -l)
-                [ $httpd_errors -gt 0 ] && echo -e "  ${RED}⚠ $httpd_errors error(s) in last hour${NC}" && total_errors=$((total_errors + httpd_errors))
+                local httpd_errors=$(journalctl -u httpd -p err --since "1 hour ago" --no-pager 2>/dev/null | grep -c "^-- " || echo 0)
+                if [ "$httpd_errors" -gt 0 ]; then
+                    echo -e "  ${RED}⚠ $httpd_errors error(s) in last hour${NC}"
+                    total_errors=$((total_errors + httpd_errors))
+                fi
             fi
         else
             echo -e "${GRAY}○${NC} Apache: ${GRAY}Not installed${NC}"
@@ -1646,8 +1655,11 @@ service_log_menu() {
                 check_service_status "php${ver}-fpm" "PHP ${ver}-FPM"
                 php_found=1
                 if systemctl is-active --quiet "php${ver}-fpm" 2>/dev/null; then
-                    local php_errors=$(journalctl -u "php${ver}-fpm" -p err -n 1 --since "1 hour ago" --no-pager 2>/dev/null | wc -l)
-                    [ $php_errors -gt 0 ] && echo -e "  ${RED}⚠ $php_errors error(s) in last hour${NC}" && total_errors=$((total_errors + php_errors))
+                    local php_errors=$(journalctl -u "php${ver}-fpm" -p err --since "1 hour ago" --no-pager 2>/dev/null | grep -c "^-- " || echo 0)
+                    if [ "$php_errors" -gt 0 ]; then
+                        echo -e "  ${RED}⚠ $php_errors error(s) in last hour${NC}"
+                        total_errors=$((total_errors + php_errors))
+                    fi
                 fi
             fi
         done
@@ -1657,14 +1669,20 @@ service_log_menu() {
         if systemctl list-units --full -all | grep -Fq "mysql"; then
             check_service_status "mysql" "MySQL"
             if systemctl is-active --quiet mysql 2>/dev/null; then
-                local mysql_errors=$(journalctl -u mysql -p err -n 1 --since "1 hour ago" --no-pager 2>/dev/null | wc -l)
-                [ $mysql_errors -gt 0 ] && echo -e "  ${RED}⚠ $mysql_errors error(s) in last hour${NC}" && total_errors=$((total_errors + mysql_errors))
+                local mysql_errors=$(journalctl -u mysql -p err --since "1 hour ago" --no-pager 2>/dev/null | grep -c "^-- " || echo 0)
+                if [ "$mysql_errors" -gt 0 ]; then
+                    echo -e "  ${RED}⚠ $mysql_errors error(s) in last hour${NC}"
+                    total_errors=$((total_errors + mysql_errors))
+                fi
             fi
         elif systemctl list-units --full -all | grep -Fq "mariadb"; then
             check_service_status "mariadb" "MariaDB"
             if systemctl is-active --quiet mariadb 2>/dev/null; then
-                local mariadb_errors=$(journalctl -u mariadb -p err -n 1 --since "1 hour ago" --no-pager 2>/dev/null | wc -l)
-                [ $mariadb_errors -gt 0 ] && echo -e "  ${RED}⚠ $mariadb_errors error(s) in last hour${NC}" && total_errors=$((total_errors + mariadb_errors))
+                local mariadb_errors=$(journalctl -u mariadb -p err --since "1 hour ago" --no-pager 2>/dev/null | grep -c "^-- " || echo 0)
+                if [ "$mariadb_errors" -gt 0 ]; then
+                    echo -e "  ${RED}⚠ $mariadb_errors error(s) in last hour${NC}"
+                    total_errors=$((total_errors + mariadb_errors))
+                fi
             fi
         else
             echo -e "${GRAY}○${NC} MySQL/MariaDB: ${GRAY}Not installed${NC}"
@@ -1674,14 +1692,20 @@ service_log_menu() {
         if systemctl list-units --full -all | grep -Fq "redis-server"; then
             check_service_status "redis-server" "Redis"
             if systemctl is-active --quiet redis-server 2>/dev/null; then
-                local redis_errors=$(journalctl -u redis-server -p err -n 1 --since "1 hour ago" --no-pager 2>/dev/null | wc -l)
-                [ $redis_errors -gt 0 ] && echo -e "  ${RED}⚠ $redis_errors error(s) in last hour${NC}" && total_errors=$((total_errors + redis_errors))
+                local redis_errors=$(journalctl -u redis-server -p err --since "1 hour ago" --no-pager 2>/dev/null | grep -c "^-- " || echo 0)
+                if [ "$redis_errors" -gt 0 ]; then
+                    echo -e "  ${RED}⚠ $redis_errors error(s) in last hour${NC}"
+                    total_errors=$((total_errors + redis_errors))
+                fi
             fi
         elif systemctl list-units --full -all | grep -Fq "redis"; then
             check_service_status "redis" "Redis"
             if systemctl is-active --quiet redis 2>/dev/null; then
-                local redis_errors=$(journalctl -u redis -p err -n 1 --since "1 hour ago" --no-pager 2>/dev/null | wc -l)
-                [ $redis_errors -gt 0 ] && echo -e "  ${RED}⚠ $redis_errors error(s) in last hour${NC}" && total_errors=$((total_errors + redis_errors))
+                local redis_errors=$(journalctl -u redis -p err --since "1 hour ago" --no-pager 2>/dev/null | grep -c "^-- " || echo 0)
+                if [ "$redis_errors" -gt 0 ]; then
+                    echo -e "  ${RED}⚠ $redis_errors error(s) in last hour${NC}"
+                    total_errors=$((total_errors + redis_errors))
+                fi
             fi
         else
             echo -e "${GRAY}○${NC} Redis: ${GRAY}Not installed${NC}"
@@ -1690,8 +1714,11 @@ service_log_menu() {
         # Docker
         check_service_status "docker" "Docker"
         if systemctl is-active --quiet docker 2>/dev/null; then
-            local docker_errors=$(journalctl -u docker -p err -n 1 --since "1 hour ago" --no-pager 2>/dev/null | wc -l)
-            [ $docker_errors -gt 0 ] && echo -e "  ${RED}⚠ $docker_errors error(s) in last hour${NC}" && total_errors=$((total_errors + docker_errors))
+            local docker_errors=$(journalctl -u docker -p err --since "1 hour ago" --no-pager 2>/dev/null | grep -c "^-- " || echo 0)
+            if [ "$docker_errors" -gt 0 ]; then
+                echo -e "  ${RED}⚠ $docker_errors error(s) in last hour${NC}"
+                total_errors=$((total_errors + docker_errors))
+            fi
         fi
         
         # Overall Status
@@ -1700,6 +1727,7 @@ service_log_menu() {
             echo -e "${GREEN}${BOLD}✓ System Status: All services running without errors${NC}"
         else
             echo -e "${RED}${BOLD}⚠ Total Errors (last hour): $total_errors${NC}"
+            echo -e "${YELLOW}   Tip: Use option 8 to clear all logs${NC}"
         fi
         
         echo ""
@@ -1875,13 +1903,23 @@ service_log_menu() {
                     echo -e " ${GREEN}${BOLD}Complete!${NC}"
                     echo ""
                     
+                    # Force sync to disk
+                    sync
+                    
                     print_status "OK" "All logs and journal entries cleared!"
-                    print_status "INFO" "Error counters will reset on next refresh"
+                    print_status "INFO" "Synchronizing changes to disk..."
+                    sleep 1
+                    
+                    # Reload systemd to ensure journal is clean
+                    systemctl daemon-reload 2>/dev/null
+                    
                     echo ""
                     echo -e "${CYAN}Journal disk usage:${NC}"
                     journalctl --disk-usage
+                    echo ""
+                    print_status "INFO" "Returning to menu - status will be refreshed"
                     
-                    press_enter
+                    sleep 2
                 fi
                 ;;
             0) break ;;
