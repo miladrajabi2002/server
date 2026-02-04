@@ -1065,7 +1065,7 @@ manage_php_fpm() {
         
         # Detect PHP-FPM versions
         local php_versions=()
-        for ver in 8.3 8.2 8.1 8.0 7.4 7.3 7.2; do
+        for ver in 8.4 8.3 8.2 8.1 8.0 7.4 7.3 7.2; do
             if systemctl list-units --full -all | grep -Fq "php${ver}-fpm"; then
                 php_versions+=("php${ver}-fpm")
             fi
@@ -1612,12 +1612,95 @@ service_log_menu() {
         
         echo -e "${CYAN}${BOLD}Service Status Overview:${NC}\n"
         
+        # Track services and errors
+        local total_errors=0
+        
+        # Nginx
         check_service_status "nginx" "Nginx"
-        check_service_status "apache2" "Apache" || check_service_status "httpd" "Apache"
-        check_service_status "php8.3-fpm" "PHP-FPM" || check_service_status "php-fpm" "PHP-FPM"
-        check_service_status "mysql" "MySQL" || check_service_status "mariadb" "MariaDB"
-        check_service_status "redis-server" "Redis" || check_service_status "redis" "Redis"
+        if systemctl is-active --quiet nginx 2>/dev/null; then
+            local nginx_errors=$(journalctl -u nginx -p err -n 1 --since "1 hour ago" --no-pager 2>/dev/null | wc -l)
+            [ $nginx_errors -gt 0 ] && echo -e "  ${RED}⚠ $nginx_errors error(s) in last hour${NC}" && total_errors=$((total_errors + nginx_errors))
+        fi
+        
+        # Apache
+        if systemctl list-units --full -all | grep -Fq "apache2"; then
+            check_service_status "apache2" "Apache"
+            if systemctl is-active --quiet apache2 2>/dev/null; then
+                local apache_errors=$(journalctl -u apache2 -p err -n 1 --since "1 hour ago" --no-pager 2>/dev/null | wc -l)
+                [ $apache_errors -gt 0 ] && echo -e "  ${RED}⚠ $apache_errors error(s) in last hour${NC}" && total_errors=$((total_errors + apache_errors))
+            fi
+        elif systemctl list-units --full -all | grep -Fq "httpd"; then
+            check_service_status "httpd" "Apache"
+            if systemctl is-active --quiet httpd 2>/dev/null; then
+                local httpd_errors=$(journalctl -u httpd -p err -n 1 --since "1 hour ago" --no-pager 2>/dev/null | wc -l)
+                [ $httpd_errors -gt 0 ] && echo -e "  ${RED}⚠ $httpd_errors error(s) in last hour${NC}" && total_errors=$((total_errors + httpd_errors))
+            fi
+        else
+            echo -e "${GRAY}○${NC} Apache: ${GRAY}Not installed${NC}"
+        fi
+        
+        # PHP-FPM - Check all versions
+        local php_found=0
+        for ver in 8.4 8.3 8.2 8.1 8.0 7.4 7.3 7.2; do
+            if systemctl list-units --full -all | grep -Fq "php${ver}-fpm"; then
+                check_service_status "php${ver}-fpm" "PHP ${ver}-FPM"
+                php_found=1
+                if systemctl is-active --quiet "php${ver}-fpm" 2>/dev/null; then
+                    local php_errors=$(journalctl -u "php${ver}-fpm" -p err -n 1 --since "1 hour ago" --no-pager 2>/dev/null | wc -l)
+                    [ $php_errors -gt 0 ] && echo -e "  ${RED}⚠ $php_errors error(s) in last hour${NC}" && total_errors=$((total_errors + php_errors))
+                fi
+            fi
+        done
+        [ $php_found -eq 0 ] && echo -e "${GRAY}○${NC} PHP-FPM: ${GRAY}Not installed${NC}"
+        
+        # MySQL/MariaDB
+        if systemctl list-units --full -all | grep -Fq "mysql"; then
+            check_service_status "mysql" "MySQL"
+            if systemctl is-active --quiet mysql 2>/dev/null; then
+                local mysql_errors=$(journalctl -u mysql -p err -n 1 --since "1 hour ago" --no-pager 2>/dev/null | wc -l)
+                [ $mysql_errors -gt 0 ] && echo -e "  ${RED}⚠ $mysql_errors error(s) in last hour${NC}" && total_errors=$((total_errors + mysql_errors))
+            fi
+        elif systemctl list-units --full -all | grep -Fq "mariadb"; then
+            check_service_status "mariadb" "MariaDB"
+            if systemctl is-active --quiet mariadb 2>/dev/null; then
+                local mariadb_errors=$(journalctl -u mariadb -p err -n 1 --since "1 hour ago" --no-pager 2>/dev/null | wc -l)
+                [ $mariadb_errors -gt 0 ] && echo -e "  ${RED}⚠ $mariadb_errors error(s) in last hour${NC}" && total_errors=$((total_errors + mariadb_errors))
+            fi
+        else
+            echo -e "${GRAY}○${NC} MySQL/MariaDB: ${GRAY}Not installed${NC}"
+        fi
+        
+        # Redis
+        if systemctl list-units --full -all | grep -Fq "redis-server"; then
+            check_service_status "redis-server" "Redis"
+            if systemctl is-active --quiet redis-server 2>/dev/null; then
+                local redis_errors=$(journalctl -u redis-server -p err -n 1 --since "1 hour ago" --no-pager 2>/dev/null | wc -l)
+                [ $redis_errors -gt 0 ] && echo -e "  ${RED}⚠ $redis_errors error(s) in last hour${NC}" && total_errors=$((total_errors + redis_errors))
+            fi
+        elif systemctl list-units --full -all | grep -Fq "redis"; then
+            check_service_status "redis" "Redis"
+            if systemctl is-active --quiet redis 2>/dev/null; then
+                local redis_errors=$(journalctl -u redis -p err -n 1 --since "1 hour ago" --no-pager 2>/dev/null | wc -l)
+                [ $redis_errors -gt 0 ] && echo -e "  ${RED}⚠ $redis_errors error(s) in last hour${NC}" && total_errors=$((total_errors + redis_errors))
+            fi
+        else
+            echo -e "${GRAY}○${NC} Redis: ${GRAY}Not installed${NC}"
+        fi
+        
+        # Docker
         check_service_status "docker" "Docker"
+        if systemctl is-active --quiet docker 2>/dev/null; then
+            local docker_errors=$(journalctl -u docker -p err -n 1 --since "1 hour ago" --no-pager 2>/dev/null | wc -l)
+            [ $docker_errors -gt 0 ] && echo -e "  ${RED}⚠ $docker_errors error(s) in last hour${NC}" && total_errors=$((total_errors + docker_errors))
+        fi
+        
+        # Overall Status
+        echo ""
+        if [ $total_errors -eq 0 ]; then
+            echo -e "${GREEN}${BOLD}✓ System Status: All services running without errors${NC}"
+        else
+            echo -e "${RED}${BOLD}⚠ Total Errors (last hour): $total_errors${NC}"
+        fi
         
         echo ""
         echo -e "${WHITE} 1)${NC} 🔧 Nginx Management"
@@ -1627,6 +1710,7 @@ service_log_menu() {
         echo -e "${WHITE} 5)${NC} 🔴 Redis Management"
         echo -e "${WHITE} 6)${NC} 🐳 Docker Management"
         echo -e "${WHITE} 7)${NC} 📊 System Logs (journalctl)"
+        echo -e "${WHITE} 8)${NC} 🗑️  Clear All Service Logs"
         echo -e "${WHITE} 0)${NC} ← Back to Main Menu"
         echo ""
         echo -ne "${YELLOW}Select option: ${NC}"
@@ -1665,6 +1749,38 @@ service_log_menu() {
                         press_enter
                         ;;
                 esac
+                ;;
+            8)
+                print_header "CLEAR ALL SERVICE LOGS"
+                echo -e "${YELLOW}This will clear journal logs older than 1 day${NC}"
+                echo -e "${RED}⚠ This action cannot be undone!${NC}\n"
+                echo -ne "${RED}Are you sure? [y/N]: ${NC}"
+                read confirm
+                
+                if [[ $confirm =~ ^[Yy]$ ]]; then
+                    echo ""
+                    print_status "INFO" "Clearing old logs..."
+                    
+                    # Clear journal logs older than 1 day
+                    journalctl --vacuum-time=1d > /dev/null 2>&1
+                    
+                    # Clear specific service logs if they exist
+                    [ -f /var/log/nginx/error.log ] && > /var/log/nginx/error.log
+                    [ -f /var/log/nginx/access.log ] && > /var/log/nginx/access.log
+                    [ -f /var/log/apache2/error.log ] && > /var/log/apache2/error.log
+                    [ -f /var/log/apache2/access.log ] && > /var/log/apache2/access.log
+                    [ -f /var/log/mysql/error.log ] && > /var/log/mysql/error.log
+                    
+                    # Restart rsyslog to clear buffers
+                    systemctl restart rsyslog 2>/dev/null
+                    
+                    print_status "OK" "Logs cleared successfully!"
+                    print_status "INFO" "Journal size reduced"
+                    echo ""
+                    journalctl --disk-usage
+                    
+                    press_enter
+                fi
                 ;;
             0) break ;;
             *) print_status "FAIL" "Invalid option"; sleep 1 ;;
