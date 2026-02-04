@@ -112,7 +112,8 @@ backup_file() {
 
 press_enter() {
     echo ""
-    read -p "$(echo -e ${CYAN}Press Enter to continue...${NC})"
+    echo -ne "${CYAN}Press Enter to continue...${NC}"
+    read
 }
 
 #==============================================================================
@@ -281,7 +282,8 @@ remove_tcp_optimization() {
     
     echo -e "${YELLOW}This will remove BBR/Hybla and restore default settings${NC}\n"
     
-    read -p "$(echo -e ${RED}Are you sure? [y/N]:${NC} )" confirm
+    echo -ne "${RED}Are you sure? [y/N]: ${NC}"
+    read confirm
     if [[ ! $confirm =~ ^[Yy]$ ]]; then
         return
     fi
@@ -381,8 +383,8 @@ mtu_finder() {
     print_status "OK" "Optimal MTU found: $optimal_mtu"
     print_status "INFO" "Recommended MTU: $recommended_mtu"
     echo ""
-    
-    read -p "$(echo -e ${YELLOW}Apply MTU $recommended_mtu? [y/N]:${NC} )" apply_mtu
+    echo -ne "${YELLOW}Apply MTU ${recommended_mtu}? [y/N]: ${NC}"
+    read apply_mtu
     
     if [[ $apply_mtu =~ ^[Yy]$ ]]; then
         # Set MTU temporarily
@@ -520,7 +522,8 @@ optimize_dns() {
     echo ""
     echo -e "${CYAN}${BOLD}═══════════════════════════════════════════════════════════${NC}\n"
     
-    read -p "$(echo -e "${YELLOW}Apply fastest DNS ($fastest_dns)? [y/N]:${NC}")" apply_dns
+    echo -ne "${YELLOW}Apply fastest DNS (${fastest_dns})? [y/N]: ${NC}"
+    read apply_dns
     
     if [[ $apply_dns =~ ^[Yy]$ ]]; then
         # Backup resolv.conf
@@ -605,7 +608,8 @@ optimize_server() {
     echo -e "${YELLOW}Including: Memory, Network, File System, and Security${NC}\n"
     echo -e "${RED}⚠ WARNING: This will modify system configuration files${NC}\n"
     
-    read -p "$(echo -e ${YELLOW}Continue? [y/N]:${NC} )" confirm
+    echo -ne "${YELLOW}Continue? [y/N]: ${NC}"
+    read confirm
     if [[ ! $confirm =~ ^[Yy]$ ]]; then
         return
     fi
@@ -1625,7 +1629,8 @@ service_log_menu() {
         echo -e "${WHITE} 7)${NC} 📊 System Logs (journalctl)"
         echo -e "${WHITE} 0)${NC} ← Back to Main Menu"
         echo ""
-        read -p "$(echo -e ${YELLOW}Select option:${NC} )" choice
+        echo -ne "${YELLOW}Select option: ${NC}"
+        read choice
         
         case $choice in
             1) manage_nginx ;;
@@ -1686,7 +1691,8 @@ network_optimization_menu() {
         echo -e "${WHITE} 7)${NC} ${BOLD}Complete Server Optimization${NC} ${CYAN}(Memory, TCP, Limits)${NC}"
         echo -e "${WHITE} 0)${NC} ← Back to Main Menu"
         echo ""
-        read -p "$(echo -e ${YELLOW}Select option:${NC} )" choice
+        echo -ne "${YELLOW}Select option: ${NC}"
+        read choice
         
         case $choice in
             1) install_bbr ;;
@@ -1764,7 +1770,8 @@ optimize_mirrors() {
     print_status "OK" "Fastest mirror: $BEST (${BEST_TIME}ms)"
     echo ""
     
-    read -p "$(echo -e ${YELLOW}Apply this mirror? [y/N]:${NC} )" apply_mirror
+    echo -ne "${YELLOW}Apply this mirror? [y/N]: ${NC}"
+    read apply_mirror
     
     if [[ $apply_mirror =~ ^[Yy]$ ]]; then
         echo -e "${CYAN}Applying mirror...${NC}"
@@ -1829,7 +1836,8 @@ main_menu() {
         
         echo -e "\n${CYAN}${BOLD}═══════════════════════════════════════════════════════════${NC}\n"
         
-        read -p "$(echo -e ${YELLOW}Select option:${NC} )" choice
+        echo -ne "${YELLOW}Select option: ${NC}"
+        read choice
         
         case $choice in
             1) network_optimization_menu ;;
