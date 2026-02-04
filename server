@@ -2126,7 +2126,7 @@ main_menu() {
     while true; do
         print_banner
         show_system_info
-        
+         
         echo -e "${CYAN}${BOLD}═══════════════════════════════════════════════════════════${NC}"
         echo -e "${CYAN}${BOLD}                        MAIN MENU                          ${NC}"
         echo -e "${CYAN}${BOLD}═══════════════════════════════════════════════════════════${NC}\n"
