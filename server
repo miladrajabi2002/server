@@ -1906,27 +1906,20 @@ optimize_mirrors() {
         ["mirror.iranserver.com"]="mirror.iranserver.com/ubuntu"
         ["ir.ubuntu.sindad.cloud"]="ir.ubuntu.sindad.cloud/ubuntu"
         ["mirror.arvancloud.ir"]="mirror.arvancloud.ir/ubuntu"
-        ["archive.ubuntu.petiak.ir"]="archive.ubuntu.petiak.ir/ubuntu"
         ["ubuntu.hostiran.ir"]="ubuntu.hostiran.ir/ubuntu"
-        ["mirrors.pardisco.co"]="mirrors.pardisco.co/ubuntu"
         ["ubuntu.pars.host"]="ubuntu.pars.host/ubuntu"
         ["mirror.0-1.cloud"]="mirror.0-1.cloud/ubuntu"
         ["ubuntu.shatel.ir"]="ubuntu.shatel.ir/ubuntu"
         ["mirror.faraso.org"]="mirror.faraso.org/ubuntu"
-        ["repo.linuxmirrors.ir"]="repo.linuxmirrors.ir/ubuntu"
     )
     
     # International Mirrors (with correct paths)
     declare -A INTL_MIRRORS=(
         ["archive.ubuntu.com"]="archive.ubuntu.com/ubuntu"
         ["mirrors.edge.kernel.org"]="mirrors.edge.kernel.org/ubuntu"
-        ["mirror.math.princeton.edu"]="mirror.math.princeton.edu/pub/ubuntu"
-        ["mirror.csclub.uwaterloo.ca"]="mirror.csclub.uwaterloo.ca/ubuntu"
-        ["ftp.fau.de"]="ftp.fau.de/ubuntu"
         ["ftp.halifax.rwth-aachen.de"]="ftp.halifax.rwth-aachen.de/ubuntu"
         ["ftp.uni-stuttgart.de"]="ftp.uni-stuttgart.de/ubuntu"
         ["mirror.netcologne.de"]="mirror.netcologne.de/ubuntu"
-        ["ftp.tu-chemnitz.de"]="ftp.tu-chemnitz.de/pub/linux/ubuntu"
         ["mirror.leaseweb.com"]="mirror.leaseweb.com/ubuntu"
         ["ubuntu.mirror.liquidtelecom.com"]="ubuntu.mirror.liquidtelecom.com/ubuntu"
         ["mirrors.digitalocean.com"]="mirrors.digitalocean.com/ubuntu"
