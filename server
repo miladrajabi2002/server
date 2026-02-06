@@ -314,7 +314,7 @@ remove_tcp_optimization() {
 #==============================================================================
 
 mtu_finder() {
-    print_header "MTU FINDER & OPTIMIZER"
+    print_header "MTU FINDER & OPTIMIZER (Path MTU Discovery)"
     
     # Get primary interface
     PRIMARY_IFACE=$(ip route | grep default | awk '{print $5}' | head -1)
@@ -355,35 +355,80 @@ mtu_finder() {
     
     print_status "OK" "Testing connectivity to $test_ip"
     echo ""
-    echo -e "${CYAN}Finding optimal MTU...${NC}\n"
+    echo -e "${CYAN}Finding optimal MTU using Binary Search...${NC}\n"
     
-    # Binary search for optimal MTU
-    local min_mtu=1000
-    local max_mtu=1500
-    local optimal_mtu=$min_mtu
-    local step=10
+    # Binary Search Algorithm for MTU
+    local low=1200      # Minimum safe MTU
+    local high=1500     # Standard Ethernet MTU
+    local optimal=1200
+    local test_count=0
     
-    for ((mtu=$min_mtu; mtu<=$max_mtu; mtu+=$step)); do
-        local payload=$((mtu - 28))
-        echo -ne "${GRAY}Testing MTU $mtu...${NC}\r"
+    while [ $low -le $high ]; do
+        local mid=$(( (low + high) / 2 ))
+        local payload=$((mid - 28))  # Subtract IP(20) + ICMP(8) headers
+        test_count=$((test_count + 1))
         
-        if ping -M do -c 1 -s $payload -W 1 "$test_ip" &>/dev/null; then
-            optimal_mtu=$mtu
-            echo -e "${GREEN}✓${NC} MTU $mtu: ${GREEN}OK${NC}       "
+        echo -ne "${GRAY}[Test $test_count] Testing MTU $mid (payload $payload)...${NC}\r"
+        
+        # Test with Don't Fragment flag
+        # Multiple attempts for reliability
+        local success=0
+        for attempt in 1 2 3; do
+            if ping -M do -c 1 -s $payload -W 2 "$test_ip" &>/dev/null; then
+                success=1
+                break
+            fi
+            sleep 0.1
+        done
+        
+        if [ $success -eq 1 ]; then
+            optimal=$mid
+            echo -e "${GREEN}✓${NC} MTU $mid: ${GREEN}OK${NC} (payload $payload)       "
+            low=$((mid + 1))  # Try larger
         else
-            echo -e "${RED}✗${NC} MTU $mtu: ${RED}Failed${NC}"
+            echo -e "${RED}✗${NC} MTU $mid: ${RED}Fragmentation${NC}       "
+            high=$((mid - 1))  # Try smaller
+        fi
+    done
+    
+    # Fine-tune: Try incrementing by 1 from optimal
+    echo ""
+    echo -e "${CYAN}Fine-tuning optimal MTU...${NC}\n"
+    
+    for fine_mtu in $((optimal + 1)) $((optimal + 2)) $((optimal + 3)); do
+        [ $fine_mtu -gt 1500 ] && break
+        
+        local payload=$((fine_mtu - 28))
+        echo -ne "${GRAY}Testing MTU $fine_mtu...${NC}\r"
+        
+        if ping -M do -c 2 -s $payload -W 2 "$test_ip" &>/dev/null; then
+            optimal=$fine_mtu
+            echo -e "${GREEN}✓${NC} MTU $fine_mtu: ${GREEN}OK${NC}       "
+        else
+            echo -e "${RED}✗${NC} MTU $fine_mtu: ${RED}Failed${NC}"
             break
         fi
     done
     
-    # Recommend MTU
-    local recommended_mtu=$((optimal_mtu - 2))
+    # Recommend safe MTU (optimal - 10 for safety margin)
+    local recommended_mtu=$((optimal - 10))
+    
+    # Ensure minimum MTU
+    [ $recommended_mtu -lt 1280 ] && recommended_mtu=1280  # IPv6 minimum
     
     echo ""
-    print_status "OK" "Optimal MTU found: $optimal_mtu"
-    print_status "INFO" "Recommended MTU: $recommended_mtu"
+    echo -e "${CYAN}${BOLD}═══════════════════════════════════════════════════════════${NC}"
+    print_status "OK" "Maximum working MTU: $optimal"
+    print_status "INFO" "Recommended safe MTU: $recommended_mtu (with 10-byte safety margin)"
+    echo -e "${CYAN}${BOLD}═══════════════════════════════════════════════════════════${NC}\n"
+    
+    echo -e "${YELLOW}Why recommended MTU is lower:${NC}"
+    echo -e "  • Allows for VPN/tunnel overhead (if used)"
+    echo -e "  • Prevents fragmentation in diverse network paths"
+    echo -e "  • Industry best practice for reliability"
     echo ""
-    echo -ne "${YELLOW}Apply MTU ${recommended_mtu}? [y/N]: ${NC}"
+    
+    echo -ne "${YELLOW}Apply recommended MTU (${recommended_mtu})? [y/N]: ${NC}"
     read apply_mtu
     
     if [[ $apply_mtu =~ ^[Yy]$ ]]; then
@@ -391,14 +436,24 @@ mtu_finder() {
         ip link set dev "$PRIMARY_IFACE" mtu "$recommended_mtu" 2>/dev/null
         print_status "OK" "MTU temporarily set to $recommended_mtu"
         
-        # Make permanent
-        if [ -f "/etc/network/interfaces" ]; then
+        # Make permanent for different systems
+        if [ -f "/etc/netplan"/*.yaml ]; then
+            # Ubuntu 18.04+ with Netplan
+            print_status "INFO" "Detected Netplan configuration"
+            echo ""
+            echo -e "${YELLOW}To make permanent, add to /etc/netplan/*.yaml:${NC}"
+            echo -e "${CYAN}      mtu: $recommended_mtu${NC}"
+            
+        elif [ -f "/etc/network/interfaces" ]; then
+            # Debian/older Ubuntu
             backup_file "/etc/network/interfaces"
             if ! grep -q "mtu $recommended_mtu" /etc/network/interfaces; then
                 sed -i "/iface $PRIMARY_IFACE/a \    mtu $recommended_mtu" /etc/network/interfaces 2>/dev/null
                 print_status "OK" "MTU saved to /etc/network/interfaces"
             fi
+            
         elif [ -f "/etc/sysconfig/network-scripts/ifcfg-$PRIMARY_IFACE" ]; then
+            # RHEL/CentOS
             local ifcfg="/etc/sysconfig/network-scripts/ifcfg-$PRIMARY_IFACE"
             backup_file "$ifcfg"
             if grep -q "MTU=" "$ifcfg"; then
@@ -407,11 +462,22 @@ mtu_finder() {
                 echo "MTU=$recommended_mtu" >> "$ifcfg"
             fi
             print_status "OK" "MTU saved to $ifcfg"
+            
         else
-            print_status "WARN" "Manual configuration may be needed for persistence"
+            print_status "WARN" "Could not detect network configuration method"
+            echo ""
+            echo -e "${YELLOW}Manual configuration required:${NC}"
+            echo -e "  ${CYAN}ip link set dev $PRIMARY_IFACE mtu $recommended_mtu${NC}"
         fi
         
-        print_status "INFO" "MTU will persist after reboot"
+        print_status "INFO" "MTU will persist after reboot (if configured)"
+        
+        # Verify the change
+        echo ""
+        new_mtu=$(ip link show "$PRIMARY_IFACE" 2>/dev/null | grep -oP 'mtu \K\d+')
+        if [ "$new_mtu" = "$recommended_mtu" ]; then
+            print_status "OK" "Verified: MTU is now $new_mtu"
+        fi
     fi
     
     press_enter
@@ -422,77 +488,137 @@ mtu_finder() {
 #==============================================================================
 
 optimize_dns() {
-    print_header "DNS OPTIMIZER"
+    print_header "DNS OPTIMIZER & BENCHMARK"
+    
+    # Check and install dig if needed
+    if ! command -v dig &>/dev/null; then
+        echo -e "${YELLOW}dig (DNS tool) not found. Installing...${NC}\n"
+        
+        if command -v apt-get &>/dev/null; then
+            apt-get update -qq && apt-get install -y dnsutils &>/dev/null
+        elif command -v yum &>/dev/null; then
+            yum install -y bind-utils &>/dev/null
+        elif command -v dnf &>/dev/null; then
+            dnf install -y bind-utils &>/dev/null
+        fi
+        
+        if command -v dig &>/dev/null; then
+            print_status "OK" "dig installed successfully"
+        else
+            print_status "FAIL" "Could not install dig. Using fallback method."
+        fi
+        echo ""
+    fi
     
     echo -e "${YELLOW}Testing multiple DNS servers to find the fastest...${NC}\n"
     
     # DNS servers to test
     declare -A dns_servers=(
-        ["Google"]="8.8.8.8"
-        ["Cloudflare"]="1.1.1.1"
+        ["Google Primary"]="8.8.8.8"
+        ["Google Secondary"]="8.8.4.4"
+        ["Cloudflare Primary"]="1.1.1.1"
+        ["Cloudflare Secondary"]="1.0.0.1"
         ["Quad9"]="9.9.9.9"
-        ["OpenDNS"]="208.67.222.222"
+        ["OpenDNS Primary"]="208.67.222.222"
+        ["OpenDNS Secondary"]="208.67.220.220"
         ["Shecan"]="178.22.122.100"
-        ["403"]="10.202.10.202"
+        ["403 Primary"]="10.202.10.202"
+        ["403 Secondary"]="10.202.10.102"
     )
     
-    declare -A dns_times
+    # Test domains (mix of popular sites)
+    local test_domains=("google.com" "youtube.com" "facebook.com" "amazon.com" "wikipedia.org")
+    
+    declare -A dns_avg_times
+    declare -A dns_success_rate
     
     local total=${#dns_servers[@]}
     local count=0
     
-    echo -e "${CYAN}${BOLD}Testing DNS Servers:${NC}\n"
+    echo -e "${CYAN}${BOLD}Testing DNS Servers (3 methods):${NC}\n"
     
     # Test each DNS
     for name in "${!dns_servers[@]}"; do
         ip="${dns_servers[$name]}"
         count=$((count + 1))
         
-        # Show progress bar
         show_progress $count $total
         echo -ne " Testing ${CYAN}$name${NC}..."
         
-        # Test with dig if available
+        local total_time=0
+        local success_count=0
+        local test_iterations=5
+        
+        # Method 1: Use dig if available (most accurate)
         if command -v dig &>/dev/null; then
-            response_time=$(dig @$ip google.com +stats 2>/dev/null | grep "Query time:" | awk '{print $4}')
+            for domain in "${test_domains[@]}"; do
+                response_time=$(dig @$ip $domain +stats 2>/dev/null | grep "Query time:" | awk '{print $4}')
+                
+                if [ -n "$response_time" ] && [ "$response_time" -gt 0 ]; then
+                    total_time=$((total_time + response_time))
+                    success_count=$((success_count + 1))
+                fi
+            done
             
-            if [ -n "$response_time" ]; then
-                dns_times["$name"]="$response_time"
-                echo -e "\r$(show_progress $count $total) ${GREEN}✓${NC} $name ($ip): ${CYAN}${response_time}ms${NC}                    "
-            else
-                echo -e "\r$(show_progress $count $total) ${RED}✗${NC} $name ($ip): ${RED}Failed${NC}                    "
-            fi
+        # Method 2: Use nslookup as fallback
+        elif command -v nslookup &>/dev/null; then
+            for domain in "${test_domains[@]}"; do
+                start_time=$(date +%s%3N)
+                if nslookup $domain $ip &>/dev/null; then
+                    end_time=$(date +%s%3N)
+                    response_time=$((end_time - start_time))
+                    total_time=$((total_time + response_time))
+                    success_count=$((success_count + 1))
+                fi
+            done
+            
+        # Method 3: Ping fallback (least accurate)
         else
-            # Fallback to ping
-            ping_time=$(ping -c 3 -W 2 $ip 2>/dev/null | tail -1 | awk -F'/' '{print $5}' | cut -d'.' -f1)
-            
-            if [ -n "$ping_time" ]; then
-                dns_times["$name"]="$ping_time"
-                echo -e "\r$(show_progress $count $total) ${GREEN}✓${NC} $name ($ip): ${CYAN}~${ping_time}ms${NC}                    "
-            else
-                echo -e "\r$(show_progress $count $total) ${RED}✗${NC} $name ($ip): ${RED}Failed${NC}                    "
-            fi
+            for i in {1..3}; do
+                ping_time=$(ping -c 1 -W 2 $ip 2>/dev/null | grep "time=" | awk -F'time=' '{print $2}' | cut -d' ' -f1 | cut -d'.' -f1)
+                
+                if [ -n "$ping_time" ]; then
+                    total_time=$((total_time + ping_time))
+                    success_count=$((success_count + 1))
+                fi
+            done
         fi
         
-        sleep 0.2
+        # Calculate average
+        if [ $success_count -gt 0 ]; then
+            avg_time=$((total_time / success_count))
+            success_rate=$((success_count * 100 / ${#test_domains[@]}))
+            
+            dns_avg_times["$name"]="$avg_time"
+            dns_success_rate["$name"]="$success_rate"
+            
+            echo -e "\r$(show_progress $count $total) ${GREEN}✓${NC} $name ($ip): ${CYAN}${avg_time}ms${NC} (${success_rate}% success)                    "
+        else
+            echo -e "\r$(show_progress $count $total) ${RED}✗${NC} $name ($ip): ${RED}Failed${NC}                    "
+        fi
+        
+        sleep 0.1
     done
     
     echo ""
     
-    # Find fastest
+    # Find fastest with good reliability
     fastest_dns=""
     fastest_time=999999
     
-    for name in "${!dns_times[@]}"; do
-        time="${dns_times[$name]}"
-        if [ "$time" -lt "$fastest_time" ]; then
+    for name in "${!dns_avg_times[@]}"; do
+        time="${dns_avg_times[$name]}"
+        rate="${dns_success_rate[$name]}"
+        
+        # Only consider DNS with >80% success rate
+        if [ "$rate" -ge 80 ] && [ "$time" -lt "$fastest_time" ]; then
             fastest_time=$time
             fastest_dns=$name
         fi
     done
     
     if [ -z "$fastest_dns" ]; then
-        print_status "FAIL" "No DNS servers responded"
+        print_status "FAIL" "No reliable DNS servers found"
         press_enter
         return
     fi
@@ -504,42 +630,92 @@ optimize_dns() {
     echo ""
     
     # Show ranking
-    echo -e "${CYAN}${BOLD}DNS Ranking:${NC}"
+    echo -e "${CYAN}${BOLD}DNS Ranking (by average response time):${NC}"
     echo ""
     
     # Sort results
-    for name in $(for n in "${!dns_times[@]}"; do echo "$n ${dns_times[$n]}"; done | sort -k2 -n | awk '{print $1}'); do
+    for name in $(for n in "${!dns_avg_times[@]}"; do 
+        echo "$n ${dns_avg_times[$n]} ${dns_success_rate[$n]}"
+    done | sort -k2 -n | awk '{print $1}'); do
         ip="${dns_servers[$name]}"
-        time="${dns_times[$name]}"
+        time="${dns_avg_times[$name]}"
+        rate="${dns_success_rate[$name]}"
         
         if [ "$name" = "$fastest_dns" ]; then
-            echo -e "  ${GREEN}🥇 $name${NC} ($ip) - ${GREEN}${time}ms${NC}"
+            echo -e "  ${GREEN}🥇 $name${NC} ($ip) - ${GREEN}${time}ms${NC} (${rate}% reliability)"
+        elif [ "$rate" -ge 80 ]; then
+            echo -e "  ${CYAN}  $name${NC} ($ip) - ${CYAN}${time}ms${NC} (${rate}% reliability)"
         else
-            echo -e "  ${CYAN}  $name${NC} ($ip) - ${CYAN}${time}ms${NC}"
+            echo -e "  ${YELLOW}  $name${NC} ($ip) - ${YELLOW}${time}ms${NC} (${RED}${rate}% reliability - Unreliable${NC})"
         fi
     done
     
     echo ""
     echo -e "${CYAN}${BOLD}═══════════════════════════════════════════════════════════${NC}\n"
     
-    echo -ne "${YELLOW}Apply fastest DNS (${fastest_dns})? [y/N]: ${NC}"
+    # Offer secondary DNS
+    echo -e "${YELLOW}Recommended configuration:${NC}"
+    echo -e "  Primary DNS:   ${CYAN}$fastest_ip${NC} ($fastest_dns)"
+    
+    # Find second best
+    second_dns=""
+    second_time=999999
+    for name in "${!dns_avg_times[@]}"; do
+        [ "$name" = "$fastest_dns" ] && continue
+        time="${dns_avg_times[$name]}"
+        rate="${dns_success_rate[$name]}"
+        
+        if [ "$rate" -ge 80 ] && [ "$time" -lt "$second_time" ]; then
+            second_time=$time
+            second_dns=$name
+        fi
+    done
+    
+    if [ -n "$second_dns" ]; then
+        second_ip="${dns_servers[$second_dns]}"
+        echo -e "  Secondary DNS: ${CYAN}$second_ip${NC} ($second_dns)"
+    else
+        second_ip="8.8.8.8"  # Fallback to Google
+        echo -e "  Secondary DNS: ${CYAN}$second_ip${NC} (Google - fallback)"
+    fi
+    
+    echo ""
+    echo -ne "${YELLOW}Apply these DNS settings? [y/N]: ${NC}"
     read apply_dns
     
     if [[ $apply_dns =~ ^[Yy]$ ]]; then
         # Backup resolv.conf
         backup_file "/etc/resolv.conf"
         
+        # Remove immutable flag if exists
+        chattr -i /etc/resolv.conf 2>/dev/null || true
+        
         # Set DNS
         cat > /etc/resolv.conf << EOF
+# DNS Configuration - Auto-configured by Server Management Tool
+# Fastest DNS: $fastest_dns ($fastest_time ms avg)
 nameserver $fastest_ip
+nameserver $second_ip
+# Fallback
 nameserver 8.8.8.8
 EOF
         
         # Make immutable (prevent changes)
         chattr +i /etc/resolv.conf 2>/dev/null || true
         
-        print_status "OK" "DNS set to $fastest_dns ($fastest_ip)"
+        print_status "OK" "DNS configuration updated"
+        print_status "INFO" "Primary: $fastest_dns ($fastest_ip)"
+        [ -n "$second_dns" ] && print_status "INFO" "Secondary: $second_dns ($second_ip)"
         print_status "INFO" "DNS will persist after reboot"
+        
+        # Verify
+        echo ""
+        echo -e "${CYAN}Testing new DNS configuration...${NC}"
+        if nslookup google.com &>/dev/null || host google.com &>/dev/null; then
+            print_status "OK" "DNS is working correctly"
+        else
+            print_status "WARN" "DNS test failed - please verify manually"
+        fi
     fi
     
     press_enter
@@ -707,16 +883,24 @@ EOF
 #==============================================================================
 
 monitoring() {
-   
-   print_header "Server Monitoring"
+    print_header "Server Monitoring"
     
-   echo -e "${YELLOW}Running comprehensive benchmark...${NC}\n"
-   echo -e "${CYAN}This may take a few minutes${NC}\n"
+    if ! command -v btop &>/dev/null; then
+        echo -e "${YELLOW}Installing btop...${NC}\n"
+        
+        if apt-get update -qq && apt-get install -y btop &>/dev/null; then
+            print_status "OK" "btop installed successfully"
+        else
+            print_status "FAIL" "Failed to install btop"
+            echo -e "${YELLOW}Trying alternative: htop${NC}"
+            apt-get install -y htop &>/dev/null && htop || top
+            press_enter
+            return
+        fi
+    fi
     
-   apt install btop -y
-   btop
-    
-   press_enter
+    btop
+    press_enter
 }
 
 
@@ -729,7 +913,7 @@ check_ip_reputation() {
     
     # Get public IP
     echo -ne "${CYAN}Getting your public IP...${NC}\r"
-    PUBLIC_IP=$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null || echo "N/A")
+    PUBLIC_IP=$(curl -s --max-time 8 --connect-timeout 3 https://api.ipify.org 2>/dev/null || echo "N/A")
     
     if [ "$PUBLIC_IP" = "N/A" ]; then
         print_status "FAIL" "Cannot get public IP address"
@@ -749,7 +933,7 @@ check_ip_reputation() {
     echo -e "${BOLD}[1/8] IP Geolocation & ISP${NC}"
     echo -ne "${GRAY}Checking...${NC}\r"
     
-    ip_info=$(curl -s --max-time 5 "http://ip-api.com/json/$PUBLIC_IP?fields=status,country,city,isp,org,proxy,hosting" 2>/dev/null)
+    ip_info=$(curl -s --max-time 8 --connect-timeout 3 "http://ip-api.com/json/$PUBLIC_IP?fields=status,country,city,isp,org,proxy,hosting" 2>/dev/null)
     
     if [ -n "$ip_info" ] && echo "$ip_info" | grep -q "success"; then
         country=$(echo "$ip_info" | grep -o '"country":"[^"]*' | cut -d'"' -f4)
@@ -781,7 +965,7 @@ check_ip_reputation() {
     echo -e "${BOLD}[2/8] IPQualityScore - Fraud Detection${NC}"
     echo -ne "${GRAY}Checking...${NC}\r"
     
-    ipqs=$(curl -s --max-time 5 "https://www.ipqualityscore.com/api/json/ip/free/$PUBLIC_IP" 2>/dev/null)
+    ipqs=$(curl -s --max-time 8 --connect-timeout 3 "https://www.ipqualityscore.com/api/json/ip/free/$PUBLIC_IP" 2>/dev/null)
     
     if [ -n "$ipqs" ]; then
         fraud=$(echo "$ipqs" | grep -o '"fraud_score":[0-9]*' | cut -d':' -f2)
@@ -815,7 +999,7 @@ check_ip_reputation() {
     echo -e "${BOLD}[3/8] Shodan - Port Scanner${NC}"
     echo -ne "${GRAY}Checking...${NC}\r"
     
-    shodan=$(curl -s --max-time 5 "https://internetdb.shodan.io/$PUBLIC_IP" 2>/dev/null)
+    shodan=$(curl -s --max-time 8 --connect-timeout 3 "https://internetdb.shodan.io/$PUBLIC_IP" 2>/dev/null)
     
     if [ -n "$shodan" ] && ! echo "$shodan" | grep -q "No information"; then
         ports=$(echo "$shodan" | grep -o '"ports":\[[^]]*\]' | grep -o '[0-9]*' | tr '\n' ',' | sed 's/,$//')
@@ -865,7 +1049,7 @@ check_ip_reputation() {
     echo -e "${BOLD}[5/8] IPHub - Proxy Detection${NC}"
     echo -ne "${GRAY}Checking...${NC}\r"
     
-    iphub=$(curl -s --max-time 5 "http://v2.api.iphub.info/ip/$PUBLIC_IP" 2>/dev/null)
+    iphub=$(curl -s --max-time 8 --connect-timeout 3 "http://v2.api.iphub.info/ip/$PUBLIC_IP" 2>/dev/null)
     
     if [ -n "$iphub" ]; then
         block=$(echo "$iphub" | grep -o '"block":[0-2]' | cut -d':' -f2)
@@ -897,7 +1081,7 @@ check_ip_reputation() {
     echo -e "${BOLD}[6/8] Scamalytics - Fraud${NC}"
     echo -ne "${GRAY}Checking...${NC}\r"
     
-    scam=$(curl -s --max-time 5 "https://scamalytics.com/ip/$PUBLIC_IP" 2>/dev/null)
+    scam=$(curl -s --max-time 8 --connect-timeout 3 "https://scamalytics.com/ip/$PUBLIC_IP" 2>/dev/null)
     
     if [ -n "$scam" ]; then
         fraud_scam=$(echo "$scam" | grep -o 'Fraud Score: [0-9]*' | grep -o '[0-9]*' | head -1)
@@ -926,7 +1110,7 @@ check_ip_reputation() {
     echo -e "${BOLD}[7/8] GetIPIntel - Proxy Probability${NC}"
     echo -ne "${GRAY}Checking...${NC}\r"
     
-    getip=$(curl -s --max-time 5 "http://check.getipintel.net/check.php?ip=$PUBLIC_IP&contact=admin@server.local&flags=b" 2>/dev/null)
+    getip=$(curl -s --max-time 8 --connect-timeout 3 "http://check.getipintel.net/check.php?ip=$PUBLIC_IP&contact=admin@server.local&flags=b" 2>/dev/null)
     
     if [ -n "$getip" ] && [ "$getip" != "-1" ] && [ "$getip" != "-2" ]; then
         prob=$(echo "$getip" | awk '{printf "%.0f", $1 * 100}')
@@ -950,7 +1134,7 @@ check_ip_reputation() {
     echo -e "${BOLD}[8/8] AbuseIPDB${NC}"
     echo -ne "${GRAY}Checking...${NC}\r"
     
-    abuse_page=$(curl -s --max-time 5 "https://www.abuseipdb.com/check/$PUBLIC_IP" 2>/dev/null)
+    abuse_page=$(curl -s --max-time 8 --connect-timeout 3 "https://www.abuseipdb.com/check/$PUBLIC_IP" 2>/dev/null)
     total_checks=$((total_checks + 1))
     
     if echo "$abuse_page" | grep -qi "whitelisted\|not found\|clean\|0 reports"; then
@@ -1017,12 +1201,11 @@ check_ip_reputation() {
 #==============================================================================
 # Service & Log Management
 #==============================================================================
-
 check_service_status() {
     local service=$1
     local display_name=$2
     
-    if systemctl list-units --full -all | grep -Fq "$service"; then
+    if systemctl list-unit-files | grep -q "^${service}.service"; then
         if systemctl is-active --quiet "$service"; then
             echo -e "${GREEN}✓${NC} $display_name: ${GREEN}Running${NC}"
             return 0
@@ -1906,20 +2089,27 @@ optimize_mirrors() {
         ["mirror.iranserver.com"]="mirror.iranserver.com/ubuntu"
         ["ir.ubuntu.sindad.cloud"]="ir.ubuntu.sindad.cloud/ubuntu"
         ["mirror.arvancloud.ir"]="mirror.arvancloud.ir/ubuntu"
+        ["archive.ubuntu.petiak.ir"]="archive.ubuntu.petiak.ir/ubuntu"
         ["ubuntu.hostiran.ir"]="ubuntu.hostiran.ir/ubuntu"
+        ["mirrors.pardisco.co"]="mirrors.pardisco.co/ubuntu"
         ["ubuntu.pars.host"]="ubuntu.pars.host/ubuntu"
         ["mirror.0-1.cloud"]="mirror.0-1.cloud/ubuntu"
         ["ubuntu.shatel.ir"]="ubuntu.shatel.ir/ubuntu"
         ["mirror.faraso.org"]="mirror.faraso.org/ubuntu"
+        ["repo.linuxmirrors.ir"]="repo.linuxmirrors.ir/ubuntu"
     )
     
     # International Mirrors (with correct paths)
     declare -A INTL_MIRRORS=(
         ["archive.ubuntu.com"]="archive.ubuntu.com/ubuntu"
         ["mirrors.edge.kernel.org"]="mirrors.edge.kernel.org/ubuntu"
+        ["mirror.math.princeton.edu"]="mirror.math.princeton.edu/pub/ubuntu"
+        ["mirror.csclub.uwaterloo.ca"]="mirror.csclub.uwaterloo.ca/ubuntu"
+        ["ftp.fau.de"]="ftp.fau.de/ubuntu"
         ["ftp.halifax.rwth-aachen.de"]="ftp.halifax.rwth-aachen.de/ubuntu"
         ["ftp.uni-stuttgart.de"]="ftp.uni-stuttgart.de/ubuntu"
         ["mirror.netcologne.de"]="mirror.netcologne.de/ubuntu"
+        ["ftp.tu-chemnitz.de"]="ftp.tu-chemnitz.de/pub/linux/ubuntu"
         ["mirror.leaseweb.com"]="mirror.leaseweb.com/ubuntu"
         ["ubuntu.mirror.liquidtelecom.com"]="ubuntu.mirror.liquidtelecom.com/ubuntu"
         ["mirrors.digitalocean.com"]="mirrors.digitalocean.com/ubuntu"
