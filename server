@@ -522,8 +522,6 @@ optimize_dns() {
         ["OpenDNS Primary"]="208.67.222.222"
         ["OpenDNS Secondary"]="208.67.220.220"
         ["Shecan"]="178.22.122.100"
-        ["403 Primary"]="10.202.10.202"
-        ["403 Secondary"]="10.202.10.102"
     )
     
     # Test domains (mix of popular sites)
