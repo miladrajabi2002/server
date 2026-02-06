@@ -1901,41 +1901,36 @@ optimize_mirrors() {
     backup_file "/etc/apt/sources.list"
     [ -f "/etc/apt/sources.list.d/ubuntu.sources" ] && backup_file "/etc/apt/sources.list.d/ubuntu.sources"
     
-    # Iranian Mirrors
-    IRAN_MIRRORS="
-    mirror.iranserver.com
-    ir.ubuntu.sindad.cloud
-    mirror.arvancloud.ir
-    archive.ubuntu.petiak.ir
-    ubuntu.hostiran.ir
-    mirrors.pardisco.co
-    ubuntu.pars.host
-    mirror.0-1.cloud
-    ubuntu.shatel.ir
-    mirror.faraso.org
-    repo.linuxmirrors.ir
-    "
+    # Iranian Mirrors (with correct paths)
+    declare -A IRAN_MIRRORS=(
+        ["mirror.iranserver.com"]="mirror.iranserver.com/ubuntu"
+        ["ir.ubuntu.sindad.cloud"]="ir.ubuntu.sindad.cloud/ubuntu"
+        ["mirror.arvancloud.ir"]="mirror.arvancloud.ir/ubuntu"
+        ["archive.ubuntu.petiak.ir"]="archive.ubuntu.petiak.ir/ubuntu"
+        ["ubuntu.hostiran.ir"]="ubuntu.hostiran.ir/ubuntu"
+        ["mirrors.pardisco.co"]="mirrors.pardisco.co/ubuntu"
+        ["ubuntu.pars.host"]="ubuntu.pars.host/ubuntu"
+        ["mirror.0-1.cloud"]="mirror.0-1.cloud/ubuntu"
+        ["ubuntu.shatel.ir"]="ubuntu.shatel.ir/ubuntu"
+        ["mirror.faraso.org"]="mirror.faraso.org/ubuntu"
+        ["repo.linuxmirrors.ir"]="repo.linuxmirrors.ir/ubuntu"
+    )
     
-    # International Mirrors
-    INTL_MIRRORS="
-    archive.ubuntu.com
-    security.ubuntu.com
-    mirrors.edge.kernel.org
-    mirror.math.princeton.edu
-    mirror.csclub.uwaterloo.ca
-    ftp.fau.de
-    mirror.dogado.de
-    ftp.uni-stuttgart.de
-    ftp.tu-chemnitz.de
-    mirror.koddos.net
-    mirror.leaseweb.com
-    mirror.hetzner.de
-    mirror.hetzner.com
-    mirror.clarkson.edu
-    ubuntu.mirror.liquidtelecom.com
-    mirrors.digitalocean.com
-    mirror.akamai.com
-    "
+    # International Mirrors (with correct paths)
+    declare -A INTL_MIRRORS=(
+        ["archive.ubuntu.com"]="archive.ubuntu.com/ubuntu"
+        ["mirrors.edge.kernel.org"]="mirrors.edge.kernel.org/ubuntu"
+        ["mirror.math.princeton.edu"]="mirror.math.princeton.edu/pub/ubuntu"
+        ["mirror.csclub.uwaterloo.ca"]="mirror.csclub.uwaterloo.ca/ubuntu"
+        ["ftp.fau.de"]="ftp.fau.de/ubuntu"
+        ["ftp.halifax.rwth-aachen.de"]="ftp.halifax.rwth-aachen.de/ubuntu"
+        ["ftp.uni-stuttgart.de"]="ftp.uni-stuttgart.de/ubuntu"
+        ["mirror.netcologne.de"]="mirror.netcologne.de/ubuntu"
+        ["ftp.tu-chemnitz.de"]="ftp.tu-chemnitz.de/pub/linux/ubuntu"
+        ["mirror.leaseweb.com"]="mirror.leaseweb.com/ubuntu"
+        ["ubuntu.mirror.liquidtelecom.com"]="ubuntu.mirror.liquidtelecom.com/ubuntu"
+        ["mirrors.digitalocean.com"]="mirrors.digitalocean.com/ubuntu"
+    )
     
     declare -A iran_times
     declare -A intl_times
@@ -1943,10 +1938,10 @@ optimize_mirrors() {
     # Test Iranian Mirrors
     echo -e "${CYAN}${BOLD}Testing Iranian Mirrors...${NC}\n"
     
-    for mirror in $IRAN_MIRRORS; do
+    for mirror in "${!IRAN_MIRRORS[@]}"; do
         echo -ne "${GRAY}Testing $mirror...${NC}\r"
         
-        ping_time=$(ping -c 2 -W 1 $mirror 2>/dev/null | grep rtt | awk -F'/' '{print $5}' | cut -d. -f1)
+        ping_time=$(ping -c 2 -W 2 $mirror 2>/dev/null | grep rtt | awk -F'/' '{print $5}' | cut -d. -f1)
         
         if [ -n "$ping_time" ] && [ "$ping_time" -gt 0 ]; then
             iran_times["$mirror"]="$ping_time"
@@ -1959,10 +1954,10 @@ optimize_mirrors() {
     # Test International Mirrors
     echo -e "\n${CYAN}${BOLD}Testing International Mirrors...${NC}\n"
     
-    for mirror in $INTL_MIRRORS; do
+    for mirror in "${!INTL_MIRRORS[@]}"; do
         echo -ne "${GRAY}Testing $mirror...${NC}\r"
         
-        ping_time=$(ping -c 2 -W 1 $mirror 2>/dev/null | grep rtt | awk -F'/' '{print $5}' | cut -d. -f1)
+        ping_time=$(ping -c 2 -W 2 $mirror 2>/dev/null | grep rtt | awk -F'/' '{print $5}' | cut -d. -f1)
         
         if [ -n "$ping_time" ] && [ "$ping_time" -gt 0 ]; then
             intl_times["$mirror"]="$ping_time"
@@ -2048,12 +2043,15 @@ optimize_mirrors() {
     read mirror_choice
     
     SELECTED_MIRROR=""
+    SELECTED_PATH=""
     
     if [ -n "$BEST_IRAN" ] && [ "$mirror_choice" = "$IRAN_CHOICE" ]; then
         SELECTED_MIRROR=$BEST_IRAN
+        SELECTED_PATH="${IRAN_MIRRORS[$BEST_IRAN]}"
         echo -e "\n${GREEN}✓${NC} Selected: ${CYAN}$BEST_IRAN${NC} (Iranian)\n"
     elif [ -n "$BEST_INTL" ] && [ "$mirror_choice" = "$INTL_CHOICE" ]; then
         SELECTED_MIRROR=$BEST_INTL
+        SELECTED_PATH="${INTL_MIRRORS[$BEST_INTL]}"
         echo -e "\n${GREEN}✓${NC} Selected: ${CYAN}$BEST_INTL${NC} (International)\n"
     elif [ "$mirror_choice" = "0" ]; then
         print_status "INFO" "Operation cancelled"
@@ -2070,36 +2068,56 @@ optimize_mirrors() {
     
     # Update ubuntu.sources (Ubuntu 24.04+)
     if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
-        sed -i.bak "s|URIs: .*|URIs: http://$SELECTED_MIRROR/ubuntu/|" /etc/apt/sources.list.d/ubuntu.sources
+        sed -i "s|^URIs:.*|URIs: http://$SELECTED_PATH|" /etc/apt/sources.list.d/ubuntu.sources
+        sed -i "s|^# URIs:.*|URIs: http://$SELECTED_PATH|" /etc/apt/sources.list.d/ubuntu.sources
         print_status "OK" "Updated ubuntu.sources"
     fi
     
     # Update sources.list (older Ubuntu/Debian)
-    if [ -f /etc/apt/sources.list ]; then
-        sed -i.bak "s|http://[a-zA-Z0-9.-]*archive.ubuntu.com/ubuntu|http://$SELECTED_MIRROR/ubuntu|g" /etc/apt/sources.list
-        sed -i "s|http://[a-zA-Z0-9.-]*security.ubuntu.com/ubuntu|http://$SELECTED_MIRROR/ubuntu|g" /etc/apt/sources.list
+    if [ -f /etc/apt/sources.list ] && [ -s /etc/apt/sources.list ]; then
+        # Replace all Ubuntu mirror URLs
+        sed -i "s|http://[a-zA-Z0-9./-]*archive\.ubuntu\.com/ubuntu|http://$SELECTED_PATH|g" /etc/apt/sources.list
+        sed -i "s|http://[a-zA-Z0-9./-]*security\.ubuntu\.com/ubuntu|http://$SELECTED_PATH|g" /etc/apt/sources.list
+        sed -i "s|http://[a-zA-Z0-9./-]*\(ubuntu\|debian\)[a-zA-Z0-9./-]*/ubuntu|http://$SELECTED_PATH|g" /etc/apt/sources.list
         print_status "OK" "Updated sources.list"
     fi
     
     # Clean and update
     rm -rf /var/lib/apt/lists/* 2>/dev/null
     print_status "INFO" "Updating package lists..."
+    echo ""
     
-    if apt-get update -qq > /dev/null 2>&1; then
-        print_status "OK" "Mirror updated and tested successfully!"
-        echo ""
-        echo -e "${GREEN}${BOLD}✓ Your system is now using: ${CYAN}$SELECTED_MIRROR${NC}"
+    if apt-get update 2>&1 | tee /tmp/apt-update.log | grep -q "^Hit\|^Get"; then
+        if ! grep -qi "error\|failed\|404" /tmp/apt-update.log; then
+            print_status "OK" "Mirror updated and tested successfully!"
+            echo ""
+            echo -e "${GREEN}${BOLD}✓ Your system is now using: ${CYAN}http://$SELECTED_PATH${NC}"
+        else
+            print_status "FAIL" "Mirror verification failed"
+            echo -e "${YELLOW}Restoring backup...${NC}"
+            
+            # Restore backups
+            [ -f /etc/apt/sources.list.bak ] && cp /etc/apt/sources.list.bak /etc/apt/sources.list
+            [ -f /etc/apt/sources.list.d/ubuntu.sources.bak ] && cp /etc/apt/sources.list.d/ubuntu.sources.bak /etc/apt/sources.list.d/ubuntu.sources
+            
+            rm -rf /var/lib/apt/lists/* 2>/dev/null
+            apt-get update -qq > /dev/null 2>&1
+            print_status "OK" "Backup restored"
+        fi
     else
         print_status "FAIL" "Failed to update package lists"
         echo -e "${YELLOW}Restoring backup...${NC}"
         
         # Restore backups
-        [ -f /etc/apt/sources.list.bak ] && mv /etc/apt/sources.list.bak /etc/apt/sources.list
-        [ -f /etc/apt/sources.list.d/ubuntu.sources.bak ] && mv /etc/apt/sources.list.d/ubuntu.sources.bak /etc/apt/sources.list.d/ubuntu.sources
+        [ -f /etc/apt/sources.list.bak ] && cp /etc/apt/sources.list.bak /etc/apt/sources.list
+        [ -f /etc/apt/sources.list.d/ubuntu.sources.bak ] && cp /etc/apt/sources.list.d/ubuntu.sources.bak /etc/apt/sources.list.d/ubuntu.sources
         
+        rm -rf /var/lib/apt/lists/* 2>/dev/null
         apt-get update -qq > /dev/null 2>&1
         print_status "OK" "Backup restored"
     fi
+    
+    rm -f /tmp/apt-update.log 2>/dev/null
     
     press_enter
 }
