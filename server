@@ -1808,136 +1808,36 @@ service_log_menu() {
                     print_status "INFO" "Starting log cleanup..."
                     echo ""
                     
-                    local total_steps=11
-                    local current_step=0
-                    
-                    # Step 1: Rotate journal first
-                    current_step=$((current_step + 1))
-                    show_progress $current_step $total_steps
-                    echo -ne " Rotating journal...             "
+                    # Rotate journal first
                     journalctl --rotate 2>/dev/null
-                    echo -e "\r$(show_progress $current_step $total_steps) ${GREEN}✓${NC} Journal rotated             "
-                    sleep 0.2
                     
-                    # Step 2: Clear Nginx journal
-                    current_step=$((current_step + 1))
-                    show_progress $current_step $total_steps
-                    echo -ne " Clearing Nginx journal...       "
-                    journalctl --vacuum-time=1s -u nginx >/dev/null 2>&1
-                    echo -e "\r$(show_progress $current_step $total_steps) ${GREEN}✓${NC} Nginx journal cleared       "
-                    sleep 0.2
+                    # Clear all service journals in one command
+                    journalctl --vacuum-time=1s >/dev/null 2>&1
                     
-                    # Step 3: Clear Nginx log files
-                    current_step=$((current_step + 1))
-                    show_progress $current_step $total_steps
-                    echo -ne " Clearing Nginx log files...    "
-                    if [ -f /var/log/nginx/error.log ]; then
-                        > /var/log/nginx/error.log
-                        > /var/log/nginx/access.log 2>/dev/null
-                        echo -e "\r$(show_progress $current_step $total_steps) ${GREEN}✓${NC} Nginx log files cleared    "
-                    else
-                        echo -e "\r$(show_progress $current_step $total_steps) ${GRAY}○${NC} Nginx logs not found       "
-                    fi
-                    sleep 0.2
-                    
-                    # Step 4: Clear Apache journal
-                    current_step=$((current_step + 1))
-                    show_progress $current_step $total_steps
-                    echo -ne " Clearing Apache journal...      "
-                    journalctl --vacuum-time=1s -u apache2 >/dev/null 2>&1
-                    journalctl --vacuum-time=1s -u httpd >/dev/null 2>&1
-                    echo -e "\r$(show_progress $current_step $total_steps) ${GREEN}✓${NC} Apache journal cleared      "
-                    sleep 0.2
-                    
-                    # Step 5: Clear Apache log files
-                    current_step=$((current_step + 1))
-                    show_progress $current_step $total_steps
-                    echo -ne " Clearing Apache log files...   "
-                    > /var/log/apache2/error.log 2>/dev/null
-                    > /var/log/apache2/access.log 2>/dev/null
-                    > /var/log/httpd/error_log 2>/dev/null
-                    > /var/log/httpd/access_log 2>/dev/null
-                    echo -e "\r$(show_progress $current_step $total_steps) ${GREEN}✓${NC} Apache log files cleared   "
-                    sleep 0.2
-                    
-                    # Step 6: Clear PHP-FPM journal
-                    current_step=$((current_step + 1))
-                    show_progress $current_step $total_steps
-                    echo -ne " Clearing PHP-FPM journal...     "
-                    for ver in 8.4 8.3 8.2 8.1 8.0 7.4 7.3; do
-                        journalctl --vacuum-time=1s -u "php${ver}-fpm" >/dev/null 2>&1
+                    # Clear common log files
+                    for log_file in \
+                        /var/log/nginx/*.log \
+                        /var/log/apache2/*.log \
+                        /var/log/httpd/*.log \
+                        /var/log/php*.log \
+                        /var/log/mysql/*.log \
+                        /var/log/mariadb/*.log \
+                        /var/log/redis/*.log; do
+                        [ -f "$log_file" ] && > "$log_file" 2>/dev/null
                     done
-                    echo -e "\r$(show_progress $current_step $total_steps) ${GREEN}✓${NC} PHP-FPM journal cleared     "
-                    sleep 0.2
-                    
-                    # Step 7: Clear PHP-FPM log files
-                    current_step=$((current_step + 1))
-                    show_progress $current_step $total_steps
-                    echo -ne " Clearing PHP-FPM log files...  "
-                    for ver in 8.4 8.3 8.2 8.1 8.0 7.4; do
-                        > "/var/log/php${ver}-fpm.log" 2>/dev/null
-                    done
-                    echo -e "\r$(show_progress $current_step $total_steps) ${GREEN}✓${NC} PHP-FPM log files cleared  "
-                    sleep 0.2
-                    
-                    # Step 8: Clear MySQL/MariaDB journal
-                    current_step=$((current_step + 1))
-                    show_progress $current_step $total_steps
-                    echo -ne " Clearing database journal...    "
-                    journalctl --vacuum-time=1s -u mysql >/dev/null 2>&1
-                    journalctl --vacuum-time=1s -u mariadb >/dev/null 2>&1
-                    echo -e "\r$(show_progress $current_step $total_steps) ${GREEN}✓${NC} Database journal cleared    "
-                    sleep 0.2
-                    
-                    # Step 9: Clear MySQL/MariaDB log files
-                    current_step=$((current_step + 1))
-                    show_progress $current_step $total_steps
-                    echo -ne " Clearing database log files... "
-                    > /var/log/mysql/error.log 2>/dev/null
-                    > /var/log/mariadb/error.log 2>/dev/null
-                    echo -e "\r$(show_progress $current_step $total_steps) ${GREEN}✓${NC} Database log files cleared "
-                    sleep 0.2
-                    
-                    # Step 10: Clear Redis journal
-                    current_step=$((current_step + 1))
-                    show_progress $current_step $total_steps
-                    echo -ne " Clearing Redis journal...       "
-                    journalctl --vacuum-time=1s -u redis >/dev/null 2>&1
-                    journalctl --vacuum-time=1s -u redis-server >/dev/null 2>&1
-                    echo -e "\r$(show_progress $current_step $total_steps) ${GREEN}✓${NC} Redis journal cleared       "
-                    sleep 0.2
-                    
-                    # Step 11: Clear Redis log files
-                    current_step=$((current_step + 1))
-                    show_progress $current_step $total_steps
-                    echo -ne " Clearing Redis log files...     "
-                    > /var/log/redis/redis-server.log 2>/dev/null
-                    echo -e "\r$(show_progress $current_step $total_steps) ${GREEN}✓${NC} Redis log files cleared     "
-                    sleep 0.2
-                    
-                    # Final status
-                    echo ""
-                    show_progress $total_steps $total_steps
-                    echo -e " ${GREEN}${BOLD}Complete!${NC}"
-                    echo ""
                     
                     # Force sync to disk
                     sync
+                    systemctl daemon-reload 2>/dev/null
                     
                     print_status "OK" "All logs and journal entries cleared!"
-                    print_status "INFO" "Synchronizing changes to disk..."
-                    sleep 1
-                    
-                    # Reload systemd to ensure journal is clean
-                    systemctl daemon-reload 2>/dev/null
                     
                     echo ""
                     echo -e "${CYAN}Journal disk usage:${NC}"
                     journalctl --disk-usage
                     echo ""
-                    print_status "INFO" "Returning to menu - status will be refreshed"
                     
-                    sleep 2
+                    press_enter
                 fi
                 ;;
             0) break ;;
@@ -1995,13 +1895,14 @@ optimize_mirrors() {
         return
     fi
     
-    echo -e "${YELLOW}Finding fastest mirror for your server...${NC}\n"
+    echo -e "${YELLOW}Finding fastest mirrors for your server...${NC}\n"
     
     # Backup sources
     backup_file "/etc/apt/sources.list"
     [ -f "/etc/apt/sources.list.d/ubuntu.sources" ] && backup_file "/etc/apt/sources.list.d/ubuntu.sources"
     
-    MIRRORS="
+    # Iranian Mirrors
+    IRAN_MIRRORS="
     mirror.iranserver.com
     ir.ubuntu.sindad.cloud
     mirror.arvancloud.ir
@@ -2013,7 +1914,10 @@ optimize_mirrors() {
     ubuntu.shatel.ir
     mirror.faraso.org
     repo.linuxmirrors.ir
+    "
     
+    # International Mirrors
+    INTL_MIRRORS="
     archive.ubuntu.com
     security.ubuntu.com
     mirrors.edge.kernel.org
@@ -2032,71 +1936,169 @@ optimize_mirrors() {
     mirrors.digitalocean.com
     mirror.akamai.com
     "
-
-
-    echo -e "${CYAN}Testing Iran mirrors...${NC}\n"
     
-    declare -A mirror_times
+    declare -A iran_times
+    declare -A intl_times
     
-    for mirror in $MIRRORS; do
+    # Test Iranian Mirrors
+    echo -e "${CYAN}${BOLD}Testing Iranian Mirrors...${NC}\n"
+    
+    for mirror in $IRAN_MIRRORS; do
         echo -ne "${GRAY}Testing $mirror...${NC}\r"
         
-        # Ping test
         ping_time=$(ping -c 2 -W 1 $mirror 2>/dev/null | grep rtt | awk -F'/' '{print $5}' | cut -d. -f1)
         
         if [ -n "$ping_time" ] && [ "$ping_time" -gt 0 ]; then
-            mirror_times["$mirror"]="$ping_time"
+            iran_times["$mirror"]="$ping_time"
             echo -e "${GREEN}✓${NC} $mirror: ${CYAN}${ping_time}ms${NC}       "
         else
             echo -e "${RED}✗${NC} $mirror: ${RED}Failed${NC}       "
         fi
     done
     
-    # Find fastest
-    BEST=""
-    BEST_TIME=999999
+    # Test International Mirrors
+    echo -e "\n${CYAN}${BOLD}Testing International Mirrors...${NC}\n"
     
-    for mirror in "${!mirror_times[@]}"; do
-        time="${mirror_times[$mirror]}"
-        if [ "$time" -lt "$BEST_TIME" ]; then
-            BEST_TIME=$time
-            BEST=$mirror
+    for mirror in $INTL_MIRRORS; do
+        echo -ne "${GRAY}Testing $mirror...${NC}\r"
+        
+        ping_time=$(ping -c 2 -W 1 $mirror 2>/dev/null | grep rtt | awk -F'/' '{print $5}' | cut -d. -f1)
+        
+        if [ -n "$ping_time" ] && [ "$ping_time" -gt 0 ]; then
+            intl_times["$mirror"]="$ping_time"
+            echo -e "${GREEN}✓${NC} $mirror: ${CYAN}${ping_time}ms${NC}       "
+        else
+            echo -e "${RED}✗${NC} $mirror: ${RED}Failed${NC}       "
         fi
     done
     
-    if [ -z "$BEST" ]; then
-        print_status "FAIL" "No mirror responded"
+    # Find fastest Iranian mirror
+    BEST_IRAN=""
+    BEST_IRAN_TIME=999999
+    
+    for mirror in "${!iran_times[@]}"; do
+        time="${iran_times[$mirror]}"
+        if [ "$time" -lt "$BEST_IRAN_TIME" ]; then
+            BEST_IRAN_TIME=$time
+            BEST_IRAN=$mirror
+        fi
+    done
+    
+    # Find fastest International mirror
+    BEST_INTL=""
+    BEST_INTL_TIME=999999
+    
+    for mirror in "${!intl_times[@]}"; do
+        time="${intl_times[$mirror]}"
+        if [ "$time" -lt "$BEST_INTL_TIME" ]; then
+            BEST_INTL_TIME=$time
+            BEST_INTL=$mirror
+        fi
+    done
+    
+    # Display results
+    echo ""
+    echo -e "${CYAN}${BOLD}═══════════════════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}${BOLD}                    RESULTS                                ${NC}"
+    echo -e "${CYAN}${BOLD}═══════════════════════════════════════════════════════════${NC}\n"
+    
+    if [ -n "$BEST_IRAN" ]; then
+        echo -e "${GREEN}${BOLD}🇮🇷 Fastest Iranian Mirror:${NC}"
+        echo -e "   ${CYAN}$BEST_IRAN${NC} - ${GREEN}${BEST_IRAN_TIME}ms${NC}\n"
+    else
+        echo -e "${RED}${BOLD}🇮🇷 Iranian Mirror:${NC} ${RED}No mirror responded${NC}\n"
+    fi
+    
+    if [ -n "$BEST_INTL" ]; then
+        echo -e "${GREEN}${BOLD}🌍 Fastest International Mirror:${NC}"
+        echo -e "   ${CYAN}$BEST_INTL${NC} - ${GREEN}${BEST_INTL_TIME}ms${NC}\n"
+    else
+        echo -e "${RED}${BOLD}🌍 International Mirror:${NC} ${RED}No mirror responded${NC}\n"
+    fi
+    
+    echo -e "${CYAN}${BOLD}═══════════════════════════════════════════════════════════${NC}\n"
+    
+    # Check if we have at least one mirror
+    if [ -z "$BEST_IRAN" ] && [ -z "$BEST_INTL" ]; then
+        print_status "FAIL" "No mirrors responded"
         press_enter
         return
     fi
     
-    echo ""
-    print_status "OK" "Fastest mirror: $BEST (${BEST_TIME}ms)"
-    echo ""
+    # Let user choose
+    echo -e "${YELLOW}Which mirror do you want to use?${NC}\n"
     
-    echo -ne "${YELLOW}Apply this mirror? [y/N]: ${NC}"
-    read apply_mirror
+    local choice_num=1
     
-    if [[ $apply_mirror =~ ^[Yy]$ ]]; then
-        echo -e "${CYAN}Applying mirror...${NC}"
+    if [ -n "$BEST_IRAN" ]; then
+        echo -e "  ${choice_num}) 🇮🇷 Iranian: ${CYAN}$BEST_IRAN${NC} (${GREEN}${BEST_IRAN_TIME}ms${NC}) ${GREEN}${BOLD}[RECOMMENDED]${NC}"
+        IRAN_CHOICE=$choice_num
+        choice_num=$((choice_num + 1))
+    fi
+    
+    if [ -n "$BEST_INTL" ]; then
+        echo -e "  ${choice_num}) 🌍 International: ${CYAN}$BEST_INTL${NC} (${GREEN}${BEST_INTL_TIME}ms${NC})"
+        INTL_CHOICE=$choice_num
+        choice_num=$((choice_num + 1))
+    fi
+    
+    echo -e "  0) Cancel\n"
+    
+    echo -ne "${YELLOW}Your choice: ${NC}"
+    read mirror_choice
+    
+    SELECTED_MIRROR=""
+    
+    if [ -n "$BEST_IRAN" ] && [ "$mirror_choice" = "$IRAN_CHOICE" ]; then
+        SELECTED_MIRROR=$BEST_IRAN
+        echo -e "\n${GREEN}✓${NC} Selected: ${CYAN}$BEST_IRAN${NC} (Iranian)\n"
+    elif [ -n "$BEST_INTL" ] && [ "$mirror_choice" = "$INTL_CHOICE" ]; then
+        SELECTED_MIRROR=$BEST_INTL
+        echo -e "\n${GREEN}✓${NC} Selected: ${CYAN}$BEST_INTL${NC} (International)\n"
+    elif [ "$mirror_choice" = "0" ]; then
+        print_status "INFO" "Operation cancelled"
+        press_enter
+        return
+    else
+        print_status "FAIL" "Invalid choice"
+        press_enter
+        return
+    fi
+    
+    # Apply mirror
+    echo -e "${CYAN}Applying mirror configuration...${NC}\n"
+    
+    # Update ubuntu.sources (Ubuntu 24.04+)
+    if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
+        sed -i.bak "s|URIs: .*|URIs: http://$SELECTED_MIRROR/ubuntu/|" /etc/apt/sources.list.d/ubuntu.sources
+        print_status "OK" "Updated ubuntu.sources"
+    fi
+    
+    # Update sources.list (older Ubuntu/Debian)
+    if [ -f /etc/apt/sources.list ]; then
+        sed -i.bak "s|http://[a-zA-Z0-9.-]*archive.ubuntu.com/ubuntu|http://$SELECTED_MIRROR/ubuntu|g" /etc/apt/sources.list
+        sed -i "s|http://[a-zA-Z0-9.-]*security.ubuntu.com/ubuntu|http://$SELECTED_MIRROR/ubuntu|g" /etc/apt/sources.list
+        print_status "OK" "Updated sources.list"
+    fi
+    
+    # Clean and update
+    rm -rf /var/lib/apt/lists/* 2>/dev/null
+    print_status "INFO" "Updating package lists..."
+    
+    if apt-get update -qq > /dev/null 2>&1; then
+        print_status "OK" "Mirror updated and tested successfully!"
+        echo ""
+        echo -e "${GREEN}${BOLD}✓ Your system is now using: ${CYAN}$SELECTED_MIRROR${NC}"
+    else
+        print_status "FAIL" "Failed to update package lists"
+        echo -e "${YELLOW}Restoring backup...${NC}"
         
-        # Update ubuntu.sources (Ubuntu 24.04+)
-        if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
-            sed -i.bak "s|URIs: .*|URIs: http://$BEST/ubuntu/|" /etc/apt/sources.list.d/ubuntu.sources
-            print_status "OK" "Updated ubuntu.sources"
-        fi
+        # Restore backups
+        [ -f /etc/apt/sources.list.bak ] && mv /etc/apt/sources.list.bak /etc/apt/sources.list
+        [ -f /etc/apt/sources.list.d/ubuntu.sources.bak ] && mv /etc/apt/sources.list.d/ubuntu.sources.bak /etc/apt/sources.list.d/ubuntu.sources
         
-        # Update sources.list (older Ubuntu/Debian)
-        if [ -f /etc/apt/sources.list ]; then
-            sed -i.bak "s|http://[a-zA-Z0-9.-]*archive.ubuntu.com/ubuntu|http://$BEST/ubuntu|g" /etc/apt/sources.list
-            print_status "OK" "Updated sources.list"
-        fi
-        
-        # Clean and update
-        rm -rf /var/lib/apt/lists/* 2>/dev/null
-        print_status "INFO" "Updating package lists..."
         apt-get update -qq > /dev/null 2>&1
-        print_status "OK" "Mirror updated successfully!"
+        print_status "OK" "Backup restored"
     fi
     
     press_enter
