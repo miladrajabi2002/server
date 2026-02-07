@@ -549,21 +549,34 @@ optimize_dns() {
     
     echo -e "${YELLOW}Testing multiple DNS servers to find the fastest...${NC}\n"
     
-    # DNS servers to test
+    # DNS servers to test - Simple single-word keys
     declare -A dns_servers=(
-        ["Google Primary"]="8.8.8.8"
-        ["Google Secondary"]="8.8.4.4"
-        ["Cloudflare Primary"]="1.1.1.1"
-        ["Cloudflare Secondary"]="1.0.0.1"
+        ["Google-1"]="8.8.8.8"
+        ["Google-2"]="8.8.4.4"
+        ["Cloudflare-1"]="1.1.1.1"
+        ["Cloudflare-2"]="1.0.0.1"
         ["Quad9"]="9.9.9.9"
-        ["OpenDNS Primary"]="208.67.222.222"
-        ["OpenDNS Secondary"]="208.67.220.220"
-        ["Shecan Primary"]="178.22.122.100"
-        ["Shecan Secondary"]="185.51.200.2"
+        ["OpenDNS-1"]="208.67.222.222"
+        ["OpenDNS-2"]="208.67.220.220"
+        ["Shecan-1"]="178.22.122.100"
+        ["Shecan-2"]="185.51.200.2"
+    )
+    
+    # Display names
+    declare -A dns_display_names=(
+        ["Google-1"]="Google Primary"
+        ["Google-2"]="Google Secondary"
+        ["Cloudflare-1"]="Cloudflare Primary"
+        ["Cloudflare-2"]="Cloudflare Secondary"
+        ["Quad9"]="Quad9"
+        ["OpenDNS-1"]="OpenDNS Primary"
+        ["OpenDNS-2"]="OpenDNS Secondary"
+        ["Shecan-1"]="Shecan Primary"
+        ["Shecan-2"]="Shecan Secondary"
     )
     
     # Test domains (mix of popular sites)
-    local test_domains=("google.com" "youtube.com" "facebook.com" "telegram.org" "wikipedia.org")
+    local test_domains=("google.com" "youtube.com" "facebook.com" "amazon.com" "wikipedia.org")
     
     declare -A dns_avg_times
     declare -A dns_success_rate
@@ -574,23 +587,23 @@ optimize_dns() {
     echo -e "${CYAN}${BOLD}Testing DNS Servers (3 methods):${NC}\n"
     
     # Test each DNS
-    for name in "${!dns_servers[@]}"; do
-        ip="${dns_servers[$name]}"
+    for key in "${!dns_servers[@]}"; do
+        ip="${dns_servers[$key]}"
+        display_name="${dns_display_names[$key]}"
         count=$((count + 1))
         
         show_progress $count $total
-        echo -ne " Testing ${CYAN}$name${NC}..."
+        echo -ne " Testing ${CYAN}$display_name${NC}..."
         
         local total_time=0
         local success_count=0
-        local test_iterations=5
         
         # Method 1: Use dig if available (most accurate)
         if command -v dig &>/dev/null; then
             for domain in "${test_domains[@]}"; do
-                response_time=$(dig @$ip $domain +stats 2>/dev/null | grep "Query time:" | awk '{print $4}')
+                response_time=$(dig @$ip $domain +stats +timeout=2 +tries=1 2>/dev/null | grep "Query time:" | awk '{print $4}')
                 
-                if [ -n "$response_time" ] && [ "$response_time" -gt 0 ]; then
+                if [ -n "$response_time" ] && [ "$response_time" -gt 0 ] 2>/dev/null; then
                     total_time=$((total_time + response_time))
                     success_count=$((success_count + 1))
                 fi
@@ -600,11 +613,13 @@ optimize_dns() {
         elif command -v nslookup &>/dev/null; then
             for domain in "${test_domains[@]}"; do
                 start_time=$(date +%s%3N)
-                if nslookup $domain $ip &>/dev/null; then
+                if timeout 2 nslookup $domain $ip &>/dev/null; then
                     end_time=$(date +%s%3N)
                     response_time=$((end_time - start_time))
-                    total_time=$((total_time + response_time))
-                    success_count=$((success_count + 1))
+                    if [ "$response_time" -gt 0 ] 2>/dev/null; then
+                        total_time=$((total_time + response_time))
+                        success_count=$((success_count + 1))
+                    fi
                 fi
             done
             
@@ -613,7 +628,7 @@ optimize_dns() {
             for i in {1..3}; do
                 ping_time=$(ping -c 1 -W 2 $ip 2>/dev/null | grep "time=" | awk -F'time=' '{print $2}' | cut -d' ' -f1 | cut -d'.' -f1)
                 
-                if [ -n "$ping_time" ]; then
+                if [ -n "$ping_time" ] && [ "$ping_time" -gt 0 ] 2>/dev/null; then
                     total_time=$((total_time + ping_time))
                     success_count=$((success_count + 1))
                 fi
@@ -625,12 +640,14 @@ optimize_dns() {
             avg_time=$((total_time / success_count))
             success_rate=$((success_count * 100 / ${#test_domains[@]}))
             
-            dns_avg_times["$name"]="$avg_time"
-            dns_success_rate["$name"]="$success_rate"
+            dns_avg_times["$key"]="$avg_time"
+            dns_success_rate["$key"]="$success_rate"
             
-            echo -e "\r$(show_progress $count $total) ${GREEN}✓${NC} $name ($ip): ${CYAN}${avg_time}ms${NC} (${success_rate}% success)                    "
+            echo -e "\r$(show_progress $count $total) ${GREEN}✓${NC} $display_name ($ip): ${CYAN}${avg_time}ms${NC} (${success_rate}% success)                    "
         else
-            echo -e "\r$(show_progress $count $total) ${RED}✗${NC} $name ($ip): ${RED}Failed${NC}                    "
+            dns_avg_times["$key"]="9999"
+            dns_success_rate["$key"]="0"
+            echo -e "\r$(show_progress $count $total) ${RED}✗${NC} $display_name ($ip): ${RED}Failed${NC}                    "
         fi
         
         sleep 0.1
@@ -639,80 +656,100 @@ optimize_dns() {
     echo ""
     
     # Find fastest with good reliability
-    fastest_dns=""
+    fastest_key=""
     fastest_time=999999
     
-    for name in "${!dns_avg_times[@]}"; do
-        time="${dns_avg_times[$name]}"
-        rate="${dns_success_rate[$name]}"
+    for key in "${!dns_avg_times[@]}"; do
+        time="${dns_avg_times[$key]}"
+        rate="${dns_success_rate[$key]}"
         
         # Only consider DNS with >80% success rate
-        if [ "$rate" -ge 80 ] && [ "$time" -lt "$fastest_time" ]; then
+        if [ -n "$rate" ] && [ -n "$time" ] && [ "$rate" -ge 80 ] 2>/dev/null && [ "$time" -lt "$fastest_time" ] 2>/dev/null; then
             fastest_time=$time
-            fastest_dns=$name
+            fastest_key=$key
         fi
     done
     
-    if [ -z "$fastest_dns" ]; then
+    if [ -z "$fastest_key" ]; then
         print_status "FAIL" "No reliable DNS servers found"
         press_enter
         return
     fi
     
-    fastest_ip="${dns_servers[$fastest_dns]}"
+    fastest_ip="${dns_servers[$fastest_key]}"
+    fastest_name="${dns_display_names[$fastest_key]}"
     
     echo -e "${CYAN}${BOLD}═══════════════════════════════════════════════════════════${NC}\n"
-    print_status "OK" "Fastest DNS: ${BOLD}$fastest_dns${NC} ($fastest_ip) - ${GREEN}${fastest_time}ms${NC}"
+    print_status "OK" "Fastest DNS: ${BOLD}$fastest_name${NC} ($fastest_ip) - ${GREEN}${fastest_time}ms${NC}"
     echo ""
     
-    # Show ranking
+    # Show ranking - FIXED VERSION
     echo -e "${CYAN}${BOLD}DNS Ranking (by average response time):${NC}"
     echo ""
     
-    # Sort results
-    for name in $(for n in "${!dns_avg_times[@]}"; do 
-        echo "$n ${dns_avg_times[$n]} ${dns_success_rate[$n]}"
-    done | sort -k2 -n | awk '{print $1}'); do
-        ip="${dns_servers[$name]}"
-        time="${dns_avg_times[$name]}"
-        rate="${dns_success_rate[$name]}"
+    # Create sorted array
+    declare -a sorted_keys
+    while IFS= read -r key; do
+        sorted_keys+=("$key")
+    done < <(
+        for key in "${!dns_avg_times[@]}"; do
+            printf "%s\t%s\t%s\n" "$key" "${dns_avg_times[$key]}" "${dns_success_rate[$key]}"
+        done | sort -t$'\t' -k2 -n | cut -f1
+    )
+    
+    # Display sorted results
+    for key in "${sorted_keys[@]}"; do
+        [ -z "$key" ] && continue
         
-        if [ "$name" = "$fastest_dns" ]; then
-            echo -e "  ${GREEN}🥇 $name${NC} ($ip) - ${GREEN}${time}ms${NC} (${rate}% reliability)"
-        elif [ "$rate" -ge 80 ]; then
-            echo -e "  ${CYAN}  $name${NC} ($ip) - ${CYAN}${time}ms${NC} (${rate}% reliability)"
+        display_name="${dns_display_names[$key]}"
+        ip="${dns_servers[$key]}"
+        time="${dns_avg_times[$key]}"
+        rate="${dns_success_rate[$key]}"
+        
+        # Skip failed DNS (9999ms)
+        [ "$time" = "9999" ] && continue
+        
+        if [ "$key" = "$fastest_key" ]; then
+            echo -e "  ${GREEN}🥇 $display_name${NC} ($ip) - ${GREEN}${time}ms${NC} (${rate}% reliability)"
+        elif [ -n "$rate" ] && [ "$rate" -ge 80 ] 2>/dev/null; then
+            echo -e "  ${CYAN}   $display_name${NC} ($ip) - ${CYAN}${time}ms${NC} (${rate}% reliability)"
         else
-            echo -e "  ${YELLOW}  $name${NC} ($ip) - ${YELLOW}${time}ms${NC} (${RED}${rate}% reliability - Unreliable${NC})"
+            echo -e "  ${YELLOW}   $display_name${NC} ($ip) - ${YELLOW}${time}ms${NC} (${RED}${rate}% reliability - Unreliable${NC})"
         fi
     done
     
     echo ""
     echo -e "${CYAN}${BOLD}═══════════════════════════════════════════════════════════${NC}\n"
     
-    # Offer secondary DNS
-    echo -e "${YELLOW}Recommended configuration:${NC}"
-    echo -e "  Primary DNS:   ${CYAN}$fastest_ip${NC} ($fastest_dns)"
-    
-    # Find second best
-    second_dns=""
+    # Find second best DNS
+    second_key=""
     second_time=999999
-    for name in "${!dns_avg_times[@]}"; do
-        [ "$name" = "$fastest_dns" ] && continue
-        time="${dns_avg_times[$name]}"
-        rate="${dns_success_rate[$name]}"
+    
+    for key in "${sorted_keys[@]}"; do
+        [ -z "$key" ] && continue
+        [ "$key" = "$fastest_key" ] && continue
         
-        if [ "$rate" -ge 80 ] && [ "$time" -lt "$second_time" ]; then
+        time="${dns_avg_times[$key]}"
+        rate="${dns_success_rate[$key]}"
+        
+        if [ -n "$rate" ] && [ -n "$time" ] && [ "$rate" -ge 80 ] 2>/dev/null && [ "$time" -lt "$second_time" ] 2>/dev/null; then
             second_time=$time
-            second_dns=$name
+            second_key=$key
         fi
     done
     
-    if [ -n "$second_dns" ]; then
-        second_ip="${dns_servers[$second_dns]}"
-        echo -e "  Secondary DNS: ${CYAN}$second_ip${NC} ($second_dns)"
+    # Offer configuration
+    echo -e "${YELLOW}Recommended configuration:${NC}"
+    echo -e "  Primary DNS:   ${CYAN}$fastest_ip${NC} ($fastest_name)"
+    
+    if [ -n "$second_key" ]; then
+        second_ip="${dns_servers[$second_key]}"
+        second_name="${dns_display_names[$second_key]}"
+        echo -e "  Secondary DNS: ${CYAN}$second_ip${NC} ($second_name)"
     else
-        second_ip="8.8.8.8"  # Fallback to Google
-        echo -e "  Secondary DNS: ${CYAN}$second_ip${NC} (Google - fallback)"
+        second_ip="8.8.8.8"
+        second_name="Google (fallback)"
+        echo -e "  Secondary DNS: ${CYAN}$second_ip${NC} ($second_name)"
     fi
     
     echo ""
@@ -729,7 +766,7 @@ optimize_dns() {
         # Set DNS
         cat > /etc/resolv.conf << EOF
 # DNS Configuration - Auto-configured by Server Management Tool
-# Fastest DNS: $fastest_dns ($fastest_time ms avg)
+# Fastest DNS: $fastest_name ($fastest_time ms avg)
 nameserver $fastest_ip
 nameserver $second_ip
 # Fallback
@@ -740,8 +777,8 @@ EOF
         chattr +i /etc/resolv.conf 2>/dev/null || true
         
         print_status "OK" "DNS configuration updated"
-        print_status "INFO" "Primary: $fastest_dns ($fastest_ip)"
-        [ -n "$second_dns" ] && print_status "INFO" "Secondary: $second_dns ($second_ip)"
+        print_status "INFO" "Primary: $fastest_name ($fastest_ip)"
+        [ -n "$second_key" ] && print_status "INFO" "Secondary: $second_name ($second_ip)"
         print_status "INFO" "DNS will persist after reboot"
         
         # Verify
