@@ -135,6 +135,25 @@ show_system_info() {
     UPTIME=$(uptime -p 2>/dev/null || uptime)
     PUBLIC_IP=$(curl -s --max-time 3 https://api.ipify.org 2>/dev/null || echo "N/A")
     
+    # Network info
+    DNS_SERVERS=$(grep "^nameserver" /etc/resolv.conf 2>/dev/null | awk '{print $2}' | tr '\n' ', ' | sed 's/,$//' || echo "N/A")
+    MAIN_INTERFACE=$(ip route | grep default | awk '{print $5}' | head -n1)
+    MTU=$(ip link show $MAIN_INTERFACE 2>/dev/null | grep mtu | awk '{print $5}' || echo "N/A")
+    
+    # System info
+    RUNNING_PROCESSES=$(ps aux | wc -l)
+    
+    # Firewall status
+    if command -v ufw &> /dev/null; then
+        FW_STATUS=$(ufw status 2>/dev/null | grep "Status:" | awk '{print $2}' || echo "N/A")
+    elif command -v firewall-cmd &> /dev/null; then
+        FW_STATUS=$(firewall-cmd --state 2>/dev/null || echo "N/A")
+    elif systemctl is-active iptables &> /dev/null; then
+        FW_STATUS="active (iptables)"
+    else
+        FW_STATUS="N/A"
+    fi
+    
     # Display
     echo -e "${CYAN}╔═══════════════════════════════════════════════════════════╗${NC}"
     printf "${CYAN}║${NC} ${BOLD}%-20s${NC}: %-34s ${CYAN}║${NC}\n" "Hostname" "$HOSTNAME"
@@ -144,7 +163,11 @@ show_system_info() {
     printf "${CYAN}║${NC} ${BOLD}%-20s${NC}: %-34s ${CYAN}║${NC}\n" "Memory" "$USED_MEM / $TOTAL_MEM"
     printf "${CYAN}║${NC} ${BOLD}%-20s${NC}: %-34s ${CYAN}║${NC}\n" "Disk" "$USED_DISK / $TOTAL_DISK"
     printf "${CYAN}║${NC} ${BOLD}%-20s${NC}: %-34s ${CYAN}║${NC}\n" "Uptime" "${UPTIME:0:34}"
+    printf "${CYAN}║${NC} ${BOLD}%-20s${NC}: %-34s ${CYAN}║${NC}\n" "Running Processes" "$RUNNING_PROCESSES"
     printf "${CYAN}║${NC} ${BOLD}%-20s${NC}: ${YELLOW}%-34s${NC} ${CYAN}║${NC}\n" "Public IP" "$PUBLIC_IP"
+    printf "${CYAN}║${NC} ${BOLD}%-20s${NC}: %-34s ${CYAN}║${NC}\n" "DNS Servers" "${DNS_SERVERS:0:34}"
+    printf "${CYAN}║${NC} ${BOLD}%-20s${NC}: %-34s ${CYAN}║${NC}\n" "MTU ($MAIN_INTERFACE)" "$MTU"
+    printf "${CYAN}║${NC} ${BOLD}%-20s${NC}: ${GREEN}%-34s${NC} ${CYAN}║${NC}\n" "Firewall" "$FW_STATUS"
     echo -e "${CYAN}╚═══════════════════════════════════════════════════════════╝${NC}\n"
 }
 
